@@ -27,10 +27,17 @@ type Row interface {
 	Scan(dest ...interface{}) error
 }
 
+type Rows interface {
+	Next() bool
+	Scan(dest ...interface{}) error
+	Close() error
+}
+
 type DatabaseDriver interface {
 	Connect(dsn string) error
 	Close() error
 	ExecuteTx(ctx context.Context, txFunc func(interface{}) error) error
 	ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error)
+	QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...interface{}) Row
 }

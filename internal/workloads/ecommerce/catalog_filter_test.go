@@ -64,14 +64,11 @@ func (t *CatalogFilterTest) Run(ctx context.Context, db database.DatabaseDriver,
 			defer wg.Done()
 			for time.Now().Before(deadline) {
 				startTime := time.Now()
-				db.ExecuteTx(ctx, func(tx interface{}) error {
-					rows, err := db.QueryContext(ctx, "SELECT p.id FROM products p JOIN order_items oi ON p.id = oi.product_id GROUP BY p.id HAVING COUNT(oi.id) > 5")
-					if err != nil {
-						return err
-					}
-					defer rows.Close()
-					return nil
-				})
+				rows, err := db.QueryContext(ctx, "SELECT p.id FROM products p JOIN order_items oi ON p.id = oi.product_id GROUP BY p.id HAVING COUNT(oi.id) > 5")
+				if err != nil {
+					continue
+				}
+				rows.Close()
 				histogram.RecordValue(time.Since(startTime).Milliseconds())
 			}
 		}()

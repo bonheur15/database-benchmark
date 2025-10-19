@@ -40,6 +40,10 @@ func (pd *PostgresDriver) ExecContext(ctx context.Context, query string, args ..
 	return pd.conn.Exec(ctx, query, args...)
 }
 
+func (pd *PostgresDriver) QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error) {
+	return pd.conn.Query(ctx, query, args...)
+}
+
 func (pd *PostgresDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {
 	return pd.conn.QueryRow(ctx, query, args...)
 }

@@ -41,6 +41,10 @@ func (md *MySQLDriver) ExecContext(ctx context.Context, query string, args ...in
 	return md.db.ExecContext(ctx, query, args...)
 }
 
+func (md *MySQLDriver) QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error) {
+	return md.db.QueryContext(ctx, query, args...)
+}
+
 func (md *MySQLDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {
 	return md.db.QueryRowContext(ctx, query, args...)
 }
