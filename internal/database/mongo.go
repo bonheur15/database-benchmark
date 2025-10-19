@@ -32,8 +32,8 @@ func (mr *MongoRows) Scan(dest ...interface{}) error {
 	return mr.cursor.Decode(dest[0])
 }
 
-func (mr *MongoRows) Close() error {
-	return mr.cursor.Close(context.Background())
+func (mr *MongoRows) Close() {
+	mr.cursor.Close(context.Background())
 }
 
 func (md *MongoDriver) Connect(dsn string) error {
