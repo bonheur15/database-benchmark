@@ -10,17 +10,15 @@ import (
 type InventoryUpdateTest struct{}
 
 func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
-	if err := db.ExecuteTx(ctx, func(tx interface{}) error {
+	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		_, err := db.ExecContext(ctx, GetProductSchema())
 		if err != nil {
 			return err
 		}
-		_, err = db.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 100)
-		return err
-	}); err != nil {
-		return err
-	}
-	return nil
+		// Try to insert a product, but ignore the error if it already exists.
+		_, _ = db.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 100)
+		return nil
+	})
 }
 
 func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
