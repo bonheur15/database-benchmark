@@ -41,8 +41,20 @@ func (md *MySQLDriver) ExecContext(ctx context.Context, query string, args ...in
 	return md.db.ExecContext(ctx, query, args...)
 }
 
+type MySQLRows struct {
+	*sql.Rows
+}
+
+func (r *MySQLRows) Close() {
+	r.Rows.Close()
+}
+
 func (md *MySQLDriver) QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error) {
-	return md.db.QueryContext(ctx, query, args...)
+	rows, err := md.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return &MySQLRows{rows}, nil
 }
 
 func (md *MySQLDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {

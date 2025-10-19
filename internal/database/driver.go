@@ -30,7 +30,7 @@ type Row interface {
 type Rows interface {
 	Next() bool
 	Scan(dest ...interface{}) error
-	Close() error
+	Close()
 }
 
 type DatabaseDriver interface {
