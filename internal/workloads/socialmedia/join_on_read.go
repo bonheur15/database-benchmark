@@ -9,6 +9,7 @@ import (
 
 	"github.com/HdrHistogram/hdrhistogram-go"
 	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 const (
@@ -23,6 +24,7 @@ type JoinOnReadTest struct{}
 
 func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
+		ctx = context.WithValue(ctx, "tx", tx)
 		_, err := db.ExecContext(ctx, GetUsersSchema())
 		if err != nil {
 			return err
@@ -38,7 +40,7 @@ func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) 
 
 		for i := 0; i < NumUsers; i++ {
 			userID := fmt.Sprintf("user%d", i)
-			_, err := db.ExecContext(ctx, "INSERT INTO users (id, name) VALUES ($1, $2)", userID, fmt.Sprintf("user-%d", i))
+			_, err := db.ExecContext(ctx, "users", bson.M{"_id": userID, "name": fmt.Sprintf("user-%d", i)})
 			if err != nil {
 				return err
 			}
@@ -47,7 +49,7 @@ func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) 
 		for i := 0; i < NumPosts; i++ {
 			postID := uuid.New().String()
 			userID := fmt.Sprintf("user%d", i%NumUsers)
-			_, err := db.ExecContext(ctx, "INSERT INTO posts (id, user_id, content, created_at) VALUES ($1, $2, $3, $4)", postID, userID, "post content", time.Now())
+			_, err := db.ExecContext(ctx, "posts", bson.M{"_id": postID, "user_id": userID, "content": "post content", "created_at": time.Now()})
 			if err != nil {
 				return err
 			}
@@ -56,7 +58,7 @@ func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) 
 		for i := 0; i < NumFollows; i++ {
 			followerID := fmt.Sprintf("user%d", i%NumUsers)
 			followeeID := fmt.Sprintf("user%d", (i+1)%NumUsers)
-			_, err := db.ExecContext(ctx, "INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2)", followerID, followeeID)
+			_, err := db.ExecContext(ctx, "follows", bson.M{"follower_id": followerID, "followee_id": followeeID})
 			if err != nil {
 				// Ignore duplicate key errors
 			}
@@ -78,7 +80,7 @@ func (t *JoinOnReadTest) Run(ctx context.Context, db database.DatabaseDriver, co
 			for time.Now().Before(deadline) {
 				startTime := time.Now()
 				userID := fmt.Sprintf("user%d", time.Now().UnixNano()%NumUsers)
-				rows, err := db.QueryContext(ctx, "SELECT p.id, p.content, p.created_at FROM posts p JOIN follows f ON p.user_id = f.followee_id WHERE f.follower_id = $1 ORDER BY p.created_at DESC LIMIT 10", userID)
+				rows, err := db.QueryContext(ctx, "posts", bson.M{"user_id": bson.M{"$in": getFolloweeIDs(ctx, db, userID)}})
 				if err != nil {
 					continue
 				}
@@ -99,18 +101,40 @@ func (t *JoinOnReadTest) Run(ctx context.Context, db database.DatabaseDriver, co
 
 func (t *JoinOnReadTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		_, err := db.ExecContext(ctx, "DROP TABLE users")
+		ctx = context.WithValue(ctx, "tx", tx)
+		_, err := db.ExecContext(ctx, "follows", bson.M{})
 		if err != nil {
 			return err
 		}
-		_, err = db.ExecContext(ctx, "DROP TABLE posts")
+		_, err = db.ExecContext(ctx, "posts", bson.M{})
 		if err != nil {
 			return err
 		}
-		_, err = db.ExecContext(ctx, "DROP TABLE follows")
+		_, err = db.ExecContext(ctx, "users", bson.M{})
 		if err != nil {
 			return err
 		}
 		return nil
 	})
+}
+
+func getFolloweeIDs(ctx context.Context, db database.DatabaseDriver, userID string) []string {
+	rows, err := db.QueryContext(ctx, "follows", bson.M{"follower_id": userID})
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+
+	var followeeIDs []string
+	for rows.Next() {
+		var follow struct {
+			FolloweeID string `bson:"followee_id"`
+		}
+		if err := rows.Scan(&follow); err != nil {
+			continue
+		}
+		followeeIDs = append(followeeIDs, follow.FolloweeID)
+	}
+
+	return followeeIDs
 }

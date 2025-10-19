@@ -11,6 +11,7 @@ type InventoryUpdateTest struct{}
 
 func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
+		ctx = context.WithValue(ctx, "tx", tx)
 		_, err := db.ExecContext(ctx, GetProductSchema())
 		if err != nil {
 			return err
@@ -31,6 +32,7 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 			defer wg.Done()
 			for time.Since(startTime) < duration {
 				db.ExecuteTx(ctx, func(tx interface{}) error {
+					ctx = context.WithValue(ctx, "tx", tx)
 					_, err := db.ExecContext(ctx, "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0", "product1")
 					return err
 				})
@@ -59,7 +61,8 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 
 func (t *InventoryUpdateTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		_, err := db.ExecContext(ctx, "DROP TABLE products")
+		ctx = context.WithValue(ctx, "tx", tx)
+		_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
 		return err
 	})
 }

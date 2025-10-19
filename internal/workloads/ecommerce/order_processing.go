@@ -12,6 +12,7 @@ type OrderProcessingTest struct{}
 
 func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
 	if err := db.ExecuteTx(ctx, func(tx interface{}) error {
+		ctx = context.WithValue(ctx, "tx", tx)
 		_, err := db.ExecContext(ctx, GetProductSchema())
 		if err != nil {
 			return err
@@ -35,6 +36,7 @@ func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDri
 
 	// Seed a product
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
+		ctx = context.WithValue(ctx, "tx", tx)
 		_, err := db.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 100)
 		return err
 	})
@@ -46,6 +48,7 @@ func (t *OrderProcessingTest) Run(ctx context.Context, db database.DatabaseDrive
 
 	for time.Since(start) < duration {
 		err := db.ExecuteTx(ctx, func(tx interface{}) error {
+			ctx = context.WithValue(ctx, "tx", tx)
 			orderID := uuid.New().String()
 			userID := uuid.New().String()
 			_, err := db.ExecContext(ctx, "INSERT INTO orders (id, user_id, created_at) VALUES ($1, $2, $3)", orderID, userID, time.Now())
@@ -86,7 +89,12 @@ func (t *OrderProcessingTest) Run(ctx context.Context, db database.DatabaseDrive
 
 func (t *OrderProcessingTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	if err := db.ExecuteTx(ctx, func(tx interface{}) error {
-		_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
+		ctx = context.WithValue(ctx, "tx", tx)
+		_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS order_items")
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS payments")
 		if err != nil {
 			return err
 		}
@@ -94,11 +102,7 @@ func (t *OrderProcessingTest) Teardown(ctx context.Context, db database.Database
 		if err != nil {
 			return err
 		}
-		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS order_items")
-		if err != nil {
-			return err
-		}
-		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS payments")
+		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
 		if err != nil {
 			return err
 		}

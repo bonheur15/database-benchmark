@@ -16,6 +16,7 @@ type CatalogFilterTest struct{}
 
 func (t *CatalogFilterTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
+		ctx = context.WithValue(ctx, "tx", tx)
 		_, err := db.ExecContext(ctx, GetProductSchema())
 		if err != nil {
 			return err
@@ -85,15 +86,16 @@ func (t *CatalogFilterTest) Run(ctx context.Context, db database.DatabaseDriver,
 
 func (t *CatalogFilterTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		_, err := db.ExecContext(ctx, "DROP TABLE products")
+		ctx = context.WithValue(ctx, "tx", tx)
+		_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS order_items")
 		if err != nil {
 			return err
 		}
-		_, err = db.ExecContext(ctx, "DROP TABLE orders")
+		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS orders")
 		if err != nil {
 			return err
 		}
-		_, err = db.ExecContext(ctx, "DROP TABLE order_items")
+		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
 		if err != nil {
 			return err
 		}

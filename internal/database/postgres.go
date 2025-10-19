@@ -37,13 +37,22 @@ func (pd *PostgresDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}
 }
 
 func (pd *PostgresDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
+	if tx, ok := ctx.Value("tx").(pgx.Tx); ok {
+		return tx.Exec(ctx, query, args...)
+	}
 	return pd.conn.Exec(ctx, query, args...)
 }
 
 func (pd *PostgresDriver) QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error) {
+	if tx, ok := ctx.Value("tx").(pgx.Tx); ok {
+		return tx.Query(ctx, query, args...)
+	}
 	return pd.conn.Query(ctx, query, args...)
 }
 
 func (pd *PostgresDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {
+	if tx, ok := ctx.Value("tx").(pgx.Tx); ok {
+		return tx.QueryRow(ctx, query, args...)
+	}
 	return pd.conn.QueryRow(ctx, query, args...)
 }

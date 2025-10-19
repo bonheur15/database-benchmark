@@ -38,6 +38,9 @@ func (md *MySQLDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) e
 }
 
 func (md *MySQLDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
+	if tx, ok := ctx.Value("tx").(*sql.Tx); ok {
+		return tx.ExecContext(ctx, query, args...)
+	}
 	return md.db.ExecContext(ctx, query, args...)
 }
 
@@ -50,6 +53,13 @@ func (r *MySQLRows) Close() {
 }
 
 func (md *MySQLDriver) QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error) {
+	if tx, ok := ctx.Value("tx").(*sql.Tx); ok {
+		rows, err := tx.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		return &MySQLRows{rows}, nil
+	}
 	rows, err := md.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -58,5 +68,8 @@ func (md *MySQLDriver) QueryContext(ctx context.Context, query string, args ...i
 }
 
 func (md *MySQLDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {
+	if tx, ok := ctx.Value("tx").(*sql.Tx); ok {
+		return tx.QueryRowContext(ctx, query, args...)
+	}
 	return md.db.QueryRowContext(ctx, query, args...)
 }

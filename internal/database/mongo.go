@@ -67,22 +67,23 @@ func (md *MongoDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) e
 }
 
 func (md *MongoDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
-	collectionName, filter, update := parseMongoQuery(query, args...)
-	collection := md.client.Database("benchmarkdb").Collection(collectionName)
-
-	if update != nil {
-		return collection.UpdateOne(ctx, filter, update)
-	} else if filter != nil {
-		return collection.InsertOne(ctx, filter)
+	collection := md.client.Database("benchmarkdb").Collection(query)
+	if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
+		return collection.InsertOne(sessCtx, args[0])
 	}
-
-	return nil, nil
+	return collection.InsertOne(ctx, args[0])
 }
 
 func (md *MongoDriver) QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error) {
-	collectionName, filter, _ := parseMongoQuery(query, args...)
-	collection := md.client.Database("benchmarkdb").Collection(collectionName)
-	cursor, err := collection.Find(ctx, filter)
+	collection := md.client.Database("benchmarkdb
+").Collection(query)
+	var cursor *mongo.Cursor
+	var err error
+	if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
+		cursor, err = collection.Find(sessCtx, args[0])
+	} else {
+		cursor, err = collection.Find(ctx, args[0])
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -90,28 +91,12 @@ func (md *MongoDriver) QueryContext(ctx context.Context, query string, args ...i
 }
 
 func (md *MongoDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {
-	collectionName, filter, _ := parseMongoQuery(query, args...)
-	collection := md.client.Database("benchmarkdb").Collection(collectionName)
-	singleResult := collection.FindOne(ctx, filter)
-	return &MongoRow{singleResult: singleResult}
-}
-
-func parseMongoQuery(query string, args ...interface{}) (string, bson.M, bson.M) {
-	switch query {
-	case "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0":
-		return "products", bson.M{"_id": args[0], "inventory": bson.M{"$gt": 0}}, bson.M{"$inc": bson.M{"inventory": -1}}
-	case "SELECT inventory FROM products WHERE id = $1":
-		return "products", bson.M{"_id": args[0]}, nil
-	case "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)":
-		return "products", bson.M{"_id": args[0], "name": args[1], "inventory": args[2]}, nil
-	case "INSERT INTO orders (id, user_id, created_at) VALUES ($1, $2, $3)":
-		return "orders", bson.M{"_id": args[0], "user_id": args[1], "created_at": args[2]}, nil
-	case "INSERT INTO order_items (id, order_id, product_id, quantity) VALUES ($1, $2, $3, $4)":
-		return "orders", bson.M{"_id": args[1]}, bson.M{"$push": bson.M{"items": bson.M{"_id": args[0], "product_id": args[2], "quantity": args[3]}}}
-	case "INSERT INTO payments (id, order_id, amount) VALUES ($1, $2, 10.50)":
-		return "orders", bson.M{"_id": args[1]}, bson.M{"$set": bson.M{"payment": bson.M{"_id": args[0], "amount": 10.50}}}
-	case "SELECT p.id FROM products p JOIN order_items oi ON p.id = oi.product_id GROUP BY p.id HAVING COUNT(oi.id) > 5":
-		return "products", bson.M{"orders.5": bson.M{"$exists": true}}, nil
+	collection := md.client.Database("benchmarkdb").Collection(query)
+	var singleResult *mongo.SingleResult
+	if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
+		singleResult = collection.FindOne(sessCtx, args[0])
+	} else {
+		singleResult = collection.FindOne(ctx, args[0])
 	}
-	return "", nil, nil
+	return &MongoRow{singleResult: singleResult}
 }
