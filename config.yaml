@@ -1,0 +1,8 @@
+databases:
+  postgres: "postgres://user:password@localhost:5432/benchmarkdb?sslmode=disable"
+  mysql: "root:password@tcp(localhost:3306)/benchmarkdb"
+  mongo: "mongodb://localhost:27017"
+
+benchmark_settings:
+  default_duration: "30s"
+  default_concurrency: 100
