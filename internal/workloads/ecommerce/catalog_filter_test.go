@@ -30,6 +30,10 @@ func (t *CatalogFilterTest) Setup(ctx context.Context, db database.DatabaseDrive
 			if err != nil {
 				return err
 			}
+			_, err = tx.Exec(ctx, GetOrderItemsSchema())
+			if err != nil {
+				return err
+			}
 			for i := 0; i < 100; i++ {
 				productID := uuid.New().String()
 				_, err := tx.Exec(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", productID, fmt.Sprintf("product-%d", i), 100)
@@ -40,6 +44,11 @@ func (t *CatalogFilterTest) Setup(ctx context.Context, db database.DatabaseDrive
 					orderID := uuid.New().String()
 					userID := uuid.New().String()
 					_, err := tx.Exec(ctx, "INSERT INTO orders (id, user_id, created_at) VALUES ($1, $2, $3)", orderID, userID, time.Now())
+					if err != nil {
+						return err
+					}
+					orderItemID := uuid.New().String()
+					_, err = tx.Exec(ctx, "INSERT INTO order_items (id, order_id, product_id, quantity) VALUES ($1, $2, $3, $4)", orderItemID, orderID, productID, 1)
 					if err != nil {
 						return err
 					}
@@ -56,6 +65,11 @@ func (t *CatalogFilterTest) Setup(ctx context.Context, db database.DatabaseDrive
 			if err != nil {
 				return err
 			}
+			_, err = tx.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS order_items (id VARCHAR(255) PRIMARY KEY,order_id VARCHAR(255) NOT NULL,product_id VARCHAR(255) NOT NULL,quantity INT NOT NULL);
+")
+			if err != nil {
+				return err
+			}
 			for i := 0; i < 100; i++ {
 				productID := uuid.New().String()
 				_, err := tx.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES (?, ?, ?)", productID, fmt.Sprintf("product-%d", i), 100)
@@ -66,6 +80,11 @@ func (t *CatalogFilterTest) Setup(ctx context.Context, db database.DatabaseDrive
 					orderID := uuid.New().String()
 					userID := uuid.New().String()
 					_, err := tx.ExecContext(ctx, "INSERT INTO orders (id, user_id, created_at) VALUES (?, ?, ?)", orderID, userID, time.Now())
+					if err != nil {
+						return err
+					}
+					orderItemID := uuid.New().String()
+					_, err = tx.ExecContext(ctx, "INSERT INTO order_items (id, order_id, product_id, quantity) VALUES (?, ?, ?, ?)", orderItemID, orderID, productID, 1)
 					if err != nil {
 						return err
 					}
@@ -106,13 +125,13 @@ func (t *CatalogFilterTest) Run(ctx context.Context, db database.DatabaseDriver,
 				txFunc := func(tx interface{}) error {
 					switch tx := tx.(type) {
 					case pgx.Tx:
-						rows, err := tx.Query(ctx, "SELECT p.id FROM products p JOIN orders o ON p.id = o.product_id GROUP BY p.id HAVING COUNT(o.id) > 5")
+						rows, err := tx.Query(ctx, "SELECT p.id FROM products p JOIN order_items oi ON p.id = oi.product_id GROUP BY p.id HAVING COUNT(oi.id) > 5")
 						if err != nil {
 							return err
 						}
 						defer rows.Close()
 					case *sql.Tx:
-						rows, err := tx.QueryContext(ctx, "SELECT p.id FROM products p JOIN orders o ON p.id = o.product_id GROUP BY p.id HAVING COUNT(o.id) > 5")
+						rows, err := tx.QueryContext(ctx, "SELECT p.id FROM products p JOIN order_items oi ON p.id = oi.product_id GROUP BY p.id HAVING COUNT(oi.id) > 5")
 						if err != nil {
 							return err
 						}
@@ -152,19 +171,32 @@ func (t *CatalogFilterTest) Teardown(ctx context.Context, db database.DatabaseDr
 				return err
 			}
 			_, err = tx.Exec(ctx, "DROP TABLE orders")
-			return err
+			if err != nil {
+				return err
+			}
+			_, err = tx.Exec(ctx, "DROP TABLE order_items")
+			if err != nil {
+				return err
+			}
 		case *sql.Tx:
 			_, err := tx.ExecContext(ctx, "DROP TABLE products")
 			if err != nil {
 				return err
 			}
 			_, err = tx.ExecContext(ctx, "DROP TABLE orders")
-			return err
+			if err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, "DROP TABLE order_items")
+			if err != nil {
+				return err
+			}
 		case mongo.SessionContext:
 			return tx.Client().Database("benchmarkdb").Collection("products").Drop(ctx)
 		default:
 			return fmt.Errorf("unsupported transaction type: %T", tx)
 		}
+		return nil
 	}
 
 	return db.ExecuteTx(ctx, txFunc)
