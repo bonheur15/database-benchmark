@@ -7,6 +7,8 @@ import (
 	"time"
 	"sync"
 	"sync/atomic"
+	"math/rand"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -47,7 +49,61 @@ func (t *IngestionTest) Run(ctx context.Context, db database.DatabaseDriver, con
 		go func() {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
-				// Bulk insert logic will be here
+				const batchSize = 1000
+				rows := make([][]interface{}, batchSize)
+				for i := 0; i < batchSize; i++ {
+					rows[i] = []interface{}{
+						uuid.New().String(),
+						time.Now(),
+						uuid.New().String(),
+						uuid.New().String(),
+						"us-east-1",
+						rand.Float64() * 100,
+					}
+				}
+
+				txFunc := func(tx interface{}) error {
+					switch tx := tx.(type) {
+					case pgx.Tx:
+						_, err := tx.CopyFrom(
+							ctx,
+							pgx.Identifier{"events"},
+							[]string{"event_id", "event_timestamp", "user_id", "product_id", "region", "metric_value"},
+							pgx.CopyFromRows(rows),
+						)
+						return err
+					case *sql.Tx:
+						valueStrings := make([]string, 0, batchSize)
+						valueArgs := make([]interface{}, 0, batchSize*6)
+						for _, row := range rows {
+							valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?)")
+							valueArgs = append(valueArgs, row...)
+						}
+						stmt := fmt.Sprintf("INSERT INTO events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES %s", strings.Join(valueStrings, ","))
+						_, err := tx.ExecContext(ctx, stmt, valueArgs...)
+						return err
+					case mongo.SessionContext:
+						docs := make([]interface{}, batchSize)
+						for i, row := range rows {
+							docs[i] = bson.M{
+								"_id": row[0],
+								"event_timestamp": row[1],
+								"user_id": row[2],
+								"product_id": row[3],
+								"region": row[4],
+								"metric_value": row[5],
+							}
+						}
+						_, err := tx.Client().Database("benchmarkdb").Collection("events").InsertMany(ctx, docs)
+						return err
+					default:
+						return fmt.Errorf("unsupported transaction type: %T", tx)
+					}
+				}
+
+				if err := db.ExecuteTx(ctx, txFunc); err == nil {
+					atomic.AddUint64(&ingestedRows, batchSize)
+				}
 			}
 		}()
 	}
