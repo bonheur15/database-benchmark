@@ -36,3 +36,7 @@ func (md *MySQLDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) e
 
 	return tx.Commit()
 }
+
+func (md *MySQLDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
+	return md.db.ExecContext(ctx, query, args...)
+}

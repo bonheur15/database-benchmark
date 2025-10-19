@@ -28,4 +28,5 @@ type DatabaseDriver interface {
 	Close() error
 	ExecuteTx(ctx context.Context, txFunc func(interface{}) error) error
 	ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error)
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) interface{}
 }

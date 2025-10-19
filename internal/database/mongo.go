@@ -40,3 +40,9 @@ func (md *MongoDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) e
 
 	return err
 }
+
+func (md *MongoDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
+	// MongoDB doesn't have a generic ExecContext like SQL databases.
+	// This method is a placeholder and should be adapted for specific MongoDB operations.
+	return nil, nil
+}

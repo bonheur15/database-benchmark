@@ -35,3 +35,11 @@ func (pd *PostgresDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}
 
 	return tx.Commit(ctx)
 }
+
+func (pd *PostgresDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
+	return pd.conn.Exec(ctx, query, args...)
+}
+
+func (pd *PostgresDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) interface{} {
+	return pd.conn.QueryRow(ctx, query, args...)
+}
