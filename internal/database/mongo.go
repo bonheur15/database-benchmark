@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -68,15 +67,29 @@ func (md *MongoDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) e
 
 func (md *MongoDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
 	collection := md.client.Database("benchmarkdb").Collection(query)
-	if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
-		return collection.InsertOne(sessCtx, args[0])
+
+	if len(args) == 1 {
+		if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
+			return collection.InsertOne(sessCtx, args[0])
+		}
+		return collection.InsertOne(ctx, args[0])
+	} else if len(args) == 2 {
+		if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
+			return collection.UpdateOne(sessCtx, args[0], args[1])
+		}
+		return collection.UpdateOne(ctx, args[0], args[1])
+	} else if len(args) == 0 {
+		if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
+			return collection.DeleteMany(sessCtx, bson.M{})
+		}
+		return collection.DeleteMany(ctx, bson.M{})
 	}
-	return collection.InsertOne(ctx, args[0])
+
+	return nil, nil
 }
 
 func (md *MongoDriver) QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error) {
-	collection := md.client.Database("benchmarkdb
-").Collection(query)
+	collection := md.client.Database("benchmarkdb").Collection(query)
 	var cursor *mongo.Cursor
 	var err error
 	if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {

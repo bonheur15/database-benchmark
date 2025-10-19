@@ -4,7 +4,6 @@ import (
 	"context"
 	"database-benchmark/internal/database"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 

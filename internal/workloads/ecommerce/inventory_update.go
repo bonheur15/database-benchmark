@@ -5,11 +5,23 @@ import (
 	"database-benchmark/internal/database"
 	"sync"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 type InventoryUpdateTest struct{}
 
 func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
+	if _, ok := db.(*database.MongoDriver); ok {
+		// MongoDB does not use SQL schemas, collections are created implicitly
+		// Seed a product for MongoDB
+		return db.ExecuteTx(ctx, func(tx interface{}) error {
+			ctx = context.WithValue(ctx, "tx", tx)
+			_, err := db.ExecContext(ctx, "products", bson.M{"_id": "product1", "name": "test product", "inventory": 100})
+			return err
+		})
+	}
+
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 		_, err := db.ExecContext(ctx, GetProductSchema())
@@ -33,8 +45,13 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 			for time.Since(startTime) < duration {
 				db.ExecuteTx(ctx, func(tx interface{}) error {
 					ctx = context.WithValue(ctx, "tx", tx)
-					_, err := db.ExecContext(ctx, "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0", "product1")
-					return err
+					if _, ok := db.(*database.MongoDriver); ok {
+						_, err := db.ExecContext(ctx, "products", bson.M{"_id": "product1", "inventory": bson.M{"$gt": 0}}, bson.M{"$inc": bson.M{"inventory": -1}})
+						return err
+					} else {
+						_, err := db.ExecContext(ctx, "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0", "product1")
+						return err
+					}
 				})
 			}
 		}()
@@ -46,9 +63,20 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 
 	// Verify that the final inventory is 0
 	var inventory int
-	row := db.QueryRowContext(ctx, "SELECT inventory FROM products WHERE id = $1", "product1")
-	if err := row.Scan(&inventory); err != nil {
-		return nil, err
+	if _, ok := db.(*database.MongoDriver); ok {
+		var product struct {
+			Inventory int `bson:"inventory"`
+		}
+		row := db.QueryRowContext(ctx, "products", bson.M{"_id": "product1"})
+		if err := row.Scan(&product); err != nil {
+			return nil, err
+		}
+		inventory = product.Inventory
+	} else {
+		row := db.QueryRowContext(ctx, "SELECT inventory FROM products WHERE id = $1", "product1")
+		if err := row.Scan(&inventory); err != nil {
+			return nil, err
+		}
 	}
 
 	result := &database.Result{
@@ -62,7 +90,12 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 func (t *InventoryUpdateTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
-		return err
+		if _, ok := db.(*database.MongoDriver); ok {
+			_, err := db.ExecContext(ctx, "products", bson.M{})
+			return err
+		} else {
+			_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
+			return err
+		}
 	})
 }
