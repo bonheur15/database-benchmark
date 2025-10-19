@@ -3,12 +3,21 @@ package database
 import (
 	"context"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type MongoDriver struct {
 	client *mongo.Client
+}
+
+type MongoRow struct {
+	singleResult *mongo.SingleResult
+}
+
+func (mr *MongoRow) Scan(dest ...interface{}) error {
+	return mr.singleResult.Decode(dest[0])
 }
 
 func (md *MongoDriver) Connect(dsn string) error {
@@ -45,4 +54,10 @@ func (md *MongoDriver) ExecContext(ctx context.Context, query string, args ...in
 	// MongoDB doesn't have a generic ExecContext like SQL databases.
 	// This method is a placeholder and should be adapted for specific MongoDB operations.
 	return nil, nil
+}
+
+func (md *MongoDriver) QueryRowContext(ctx context.Cnotallow, query string, args ...interface{}) interface{} {
+	// MongoDB doesn't have a generic QueryRowContext like SQL databases.
+	// This method is a placeholder and should be adapted for specific MongoDB operations.
+	return nil
 }

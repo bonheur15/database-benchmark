@@ -40,3 +40,7 @@ func (md *MySQLDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) e
 func (md *MySQLDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
 	return md.db.ExecContext(ctx, query, args...)
 }
+
+func (md *MySQLDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {
+	return md.db.QueryRowContext(ctx, query, args...)
+}

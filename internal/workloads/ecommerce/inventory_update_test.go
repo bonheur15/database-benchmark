@@ -3,7 +3,6 @@ package ecommerce
 import (
 	"context"
 	"database-benchmark/internal/database"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -47,8 +46,11 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 
 	// Verify that the final inventory is 0
 	var inventory int
-	// This verification is not perfect, as it doesn't use the driver's QueryRow method.
-	// This will be fixed later.
+	row := db.QueryRowContext(ctx, "SELECT inventory FROM products WHERE id = $1", "product1")
+	if err := row.Scan(&inventory); err != nil {
+		return nil, err
+	}
+
 	result := &database.Result{
 		TotalTime:     totalTime,
 		DataIntegrity: inventory == 0,
