@@ -70,7 +70,7 @@ func main() {
 	case "socialmedia":
 		switch *test {
 		case "join_on_read":
-			w = &socialmedia.JoinOnReadTest{Follows: 100}
+			w = &socialmedia.JoinOnReadTest{}
 		case "fan_out_on_write":
 			w = &socialmedia.FanOutOnWriteTest{}
 		default:
