@@ -5,6 +5,7 @@ import (
 	"database-benchmark/internal/database"
 	"time"
 
+	"github.com/HdrHistogram/hdrhistogram-go"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -55,9 +56,14 @@ func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDri
 
 func (t *OrderProcessingTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
 	result := &database.Result{}
-	start := time.Now()
+	totalStartTime := time.Now()
 
-	for time.Since(start) < duration {
+	// Initialize HDR Histogram for latency measurements
+	// Max latency of 10 seconds, significant figures of 3
+	histogram := hdrhistogram.New(1, 10000000000, 3)
+
+	for time.Since(totalStartTime) < duration {
+		opStartTime := time.Now()
 		err := db.ExecuteTx(ctx, func(tx interface{}) error {
 			ctx = context.WithValue(ctx, "tx", tx)
 			orderID := uuid.New().String()
@@ -115,10 +121,17 @@ func (t *OrderProcessingTest) Run(ctx context.Context, db database.DatabaseDrive
 			result.Errors++
 		} else {
 			result.Operations++
+			latency := time.Since(opStartTime)
+			histogram.RecordValue(latency.Microseconds())
 		}
 	}
 
-	result.Throughput = float64(result.Operations) / duration.Seconds()
+	result.TotalTime = time.Since(totalStartTime)
+	result.Throughput = float64(result.Operations) / result.TotalTime.Seconds()
+	result.AverageLatency = time.Duration(histogram.Mean()) * time.Microsecond
+	result.P95Latency = time.Duration(histogram.ValueAtQuantile(95)) * time.Microsecond
+	result.P99Latency = time.Duration(histogram.ValueAtQuantile(99)) * time.Microsecond
+
 	return result, nil
 }
 
