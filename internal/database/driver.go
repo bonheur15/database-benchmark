@@ -12,6 +12,8 @@ type Workload interface {
 }
 
 type Result struct {
+	Operations      int64
+	Errors          int64
 	Throughput      float64
 	P95Latency      time.Duration
 	P99Latency      time.Duration
@@ -25,4 +27,5 @@ type DatabaseDriver interface {
 	Connect(dsn string) error
 	Close() error
 	ExecuteTx(ctx context.Context, txFunc func(interface{}) error) error
+	ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error)
 }
