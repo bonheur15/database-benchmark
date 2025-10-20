@@ -3,9 +3,12 @@ package ecommerce
 import (
 	"context"
 	"database-benchmark/internal/database"
-	"strings"
+	"errors"
+	"sync"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -13,71 +16,66 @@ type InventoryUpdateTest struct{}
 
 func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
 	if _, ok := db.(*database.MongoDriver); ok {
+		// MongoDB does not use SQL schemas, collections are created implicitly
+		// Seed a product for MongoDB
 		return db.ExecuteTx(ctx, func(tx interface{}) error {
-			txCtx := context.WithValue(ctx, "tx", tx)
-			_, err := db.ExecContext(txCtx, "products", bson.M{
-				"_id":       "product1",
-				"name":      "test product",
-				"inventory": 100,
-			})
+			ctx = context.WithValue(ctx, "tx", tx)
+			_, err := db.ExecContext(ctx, "products", bson.M{"_id": "product1", "name": "test product", "inventory": 100})
 			return err
 		})
 	}
 
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		// Create a context with the transaction
-		txCtx := context.WithValue(ctx, "tx", tx)
-
-		// Use db.ExecContext with the transaction context
-		_, err := db.ExecContext(txCtx, GetProductSchema())
+		ctx = context.WithValue(ctx, "tx", tx)
+		_, err := db.ExecContext(ctx, GetProductSchema())
 		if err != nil {
 			return err
 		}
-
-		// Insert product, ignoring duplicate key errors
-		_, err = db.ExecContext(txCtx,
-			"INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)",
-			"product6", "test product", 100)
-
-		if err != nil && !isDuplicateKeyError(err) {
-			return err
-		}
-
+		// Try to insert a product, but ignore the error if it already exists.
+		_, _ = db.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 100)
 		return nil
 	})
 }
 
-func isDuplicateKeyError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "duplicate key") ||
-		strings.Contains(errStr, "UNIQUE constraint") ||
-		strings.Contains(errStr, "already exists")
-}
-
 func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
+	var wg sync.WaitGroup
 	startTime := time.Now()
 
-	err := db.ExecuteTx(ctx, func(tx interface{}) error {
-		ctx = context.WithValue(ctx, "tx", tx)
-		if _, ok := db.(*database.MongoDriver); ok {
-			_, err := db.ExecContext(ctx, "products", bson.M{"_id": "product1", "inventory": bson.M{"$gt": 0}}, bson.M{"$inc": bson.M{"inventory": -1}})
-			return err
-		} else {
-			_, err := db.ExecContext(ctx, "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0", "product1")
-			return err
-		}
-	})
-
-	if err != nil {
-		return nil, err
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for time.Since(startTime) < duration {
+				err := db.ExecuteTx(ctx, func(tx interface{}) error {
+					ctx := context.WithValue(ctx, "tx", tx)
+					if _, ok := db.(*database.MongoDriver); ok {
+						_, err := db.ExecContext(ctx, "products", bson.M{"_id": "product1", "inventory": bson.M{"$gt": 0}}, bson.M{"$inc": bson.M{"inventory": -1}})
+						return err
+					} else {
+						_, err := db.ExecContext(ctx, "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0", "product1")
+						return err
+					}
+				})
+				if err != nil {
+					// Retry on serialization errors or other transient transaction errors.
+					var pgErr *pgconn.PgError
+					if errors.As(err, &pgErr) {
+						continue
+					}
+					var mysqlErr *mysql.MySQLError
+					if errors.As(err, &mysqlErr) && (mysqlErr.Number == 1213 || mysqlErr.Number == 1205) {
+						continue
+					}
+				}
+			}
+		}()
 	}
+
+	wg.Wait()
 
 	totalTime := time.Since(startTime)
 
-	// Verify that the final inventory is 99
+	// Verify that the final inventory is 0
 	var inventory int
 	if _, ok := db.(*database.MongoDriver); ok {
 		var product struct {
@@ -97,7 +95,7 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 
 	result := &database.Result{
 		TotalTime:     totalTime,
-		DataIntegrity: inventory == 99,
+		DataIntegrity: inventory == 0,
 	}
 
 	return result, nil

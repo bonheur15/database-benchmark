@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -24,17 +25,58 @@ func (md *MySQLDriver) Close() error {
 	return md.db.Close()
 }
 
-func (md *MySQLDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) error) error {
+func (md *MySQLDriver) Reset(ctx context.Context) error {
+	rows, err := md.db.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	// Disable foreign key checks to avoid errors when dropping tables with dependencies.
+	_, err = md.db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 0")
+	if err != nil {
+		return err
+	}
+
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return err
+		}
+		_, err = md.db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+		if err != nil {
+			return err
+		}
+	}
+
+	// Re-enable foreign key checks.
+	_, err = md.db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 1")
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (md *MySQLDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) error) (err error) {
 	tx, err := md.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 
-	if err := txFunc(tx); err != nil {
-		return tx.Rollback()
-	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p) // re-panic after rollback
+		} else if err != nil {
+			tx.Rollback() // err is non-nil; don't change it
+		} else {
+			err = tx.Commit() // err is nil; if Commit returns error, update err
+		}
+	}()
 
-	return tx.Commit()
+	err = txFunc(tx)
+	return err
 }
 
 func (md *MySQLDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {

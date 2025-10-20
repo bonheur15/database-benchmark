@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -23,19 +24,46 @@ func (pd *PostgresDriver) Close() error {
 	return pd.conn.Close(context.Background())
 }
 
-func (pd *PostgresDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) error) error {
+func (pd *PostgresDriver) Reset(ctx context.Context) error {
+	rows, err := pd.conn.Query(ctx, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return err
+		}
+		_, err = pd.conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", tableName))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (pd *PostgresDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) error) (err error) {
 	tx, err := pd.conn.Begin(ctx)
 	if err != nil {
 		return err
 	}
 
-	if err := txFunc(tx); err != nil {
-		// Rollback but return the original error, not the rollback error
-		_ = tx.Rollback(ctx)
-		return err
-	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback(ctx)
+			panic(p) // re-panic after rollback
+		} else if err != nil {
+			tx.Rollback(ctx) // err is non-nil; don't change it
+		} else {
+			err = tx.Commit(ctx) // err is nil; if Commit returns error, update err
+		}
+	}()
 
-	return tx.Commit(ctx)
+	err = txFunc(tx)
+	return err
 }
 
 func (pd *PostgresDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {

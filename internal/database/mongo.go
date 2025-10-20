@@ -45,6 +45,10 @@ func (md *MongoDriver) Connect(dsn string) error {
 	return nil
 }
 
+func (md *MongoDriver) Reset(ctx context.Context) error {
+	return md.client.Database("benchmarkdb").Drop(ctx)
+}
+
 func (md *MongoDriver) Close() error {
 	return md.client.Disconnect(context.Background())
 }

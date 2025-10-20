@@ -76,6 +76,11 @@ func main() {
 		log.Fatalf("Unsupported workload/test: %s/%s", *workloadName, *testName)
 	}
 
+	fmt.Printf("Resetting database...\n")
+	if err := driver.Reset(context.Background()); err != nil {
+		log.Fatalf("Failed to reset database: %v", err)
+	}
+
 	fmt.Printf("Running benchmark for %s/%s on %s...\n", *workloadName, *testName, *dbType)
 
 	result, err := runner.Run(context.Background(), driver, workload, *concurrency, *duration)

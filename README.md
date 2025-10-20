@@ -22,10 +22,41 @@ This is a database benchmark tool to compare the performance of PostgreSQL, MySQ
    go build -o benchmark-runner cmd/benchmark-runner/main.go
    ```
 
-3. **Run the benchmark:**
+3. **Run the benchmarks:**
+
+   You can run a specific test by providing the `--db`, `--workload`, and `--test` flags. For example:
 
    ```bash
    ./benchmark-runner --db=postgres --workload=ecommerce --test=order_processing
+   ```
+
+   To run all benchmarks for all databases, you can use the following script:
+
+   ```bash
+   #!/bin/bash
+
+   DATABASES=("postgres" "mysql" "mongo")
+   WORKLOADS=("ecommerce" "socialmedia" "analytics")
+
+   for db in "${DATABASES[@]}"; do
+     for workload in "${WORKLOADS[@]}"; do
+       case $workload in
+         "ecommerce")
+           tests=("order_processing" "inventory_update" "catalog_filter")
+           ;;
+         "socialmedia")
+           tests=("join_on_read" "fan_out_on_write")
+           ;;
+         "analytics")
+           tests=("ingestion" "dashboard_query")
+           ;;
+       esac
+       for test in "${tests[@]}"; do
+         echo "Running benchmark for $db/$workload/$test..."
+         ./benchmark-runner --db=$db --workload=$workload --test=$test
+       done
+     done
+   done
    ```
 
 ## Workloads
