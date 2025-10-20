@@ -30,7 +30,9 @@ func (pd *PostgresDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}
 	}
 
 	if err := txFunc(tx); err != nil {
-		return tx.Rollback(ctx)
+		// Rollback but return the original error, not the rollback error
+		_ = tx.Rollback(ctx)
+		return err
 	}
 
 	return tx.Commit(ctx)
