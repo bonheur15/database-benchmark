@@ -31,7 +31,7 @@ func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDri
 		if err != nil {
 			return err
 		}
-		// Try to insert a product, but ignore the error if it already exists.
+		// _, _ = db.ExecContext(ctx, "DROP TABLE public.products")
 		_, _ = db.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 100)
 		return nil
 	})
