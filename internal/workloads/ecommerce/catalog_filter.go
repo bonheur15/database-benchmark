@@ -87,6 +87,8 @@ func (t *CatalogFilterTest) Run(ctx context.Context, db database.DatabaseDriver,
 	var wg sync.WaitGroup
 	histogram := hdrhistogram.New(1, 10000, 3)
 	deadline := time.Now().Add(duration)
+	result := &database.Result{}
+	var mu sync.Mutex
 
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
@@ -94,29 +96,40 @@ func (t *CatalogFilterTest) Run(ctx context.Context, db database.DatabaseDriver,
 			defer wg.Done()
 			for time.Now().Before(deadline) {
 				startTime := time.Now()
+				var err error
 				if _, ok := db.(*database.MongoDriver); ok {
-					rows, err := db.QueryContext(ctx, "products", bson.M{"order_items": bson.M{"$size": bson.M{"$gt": 5}}})
-					if err != nil {
-						continue
+					rows, queryErr := db.QueryContext(ctx, "products", bson.M{"order_items": bson.M{"$size": bson.M{"$gt": 5}}})
+					err = queryErr
+					if err == nil {
+						rows.Close()
 					}
-					rows.Close()
 				} else {
-					rows, err := db.QueryContext(ctx, "SELECT p.id FROM products p JOIN order_items oi ON p.id = oi.product_id GROUP BY p.id HAVING COUNT(oi.id) > 5")
-					if err != nil {
-						continue
+					rows, queryErr := db.QueryContext(ctx, "SELECT p.id FROM products p JOIN order_items oi ON p.id = oi.product_id GROUP BY p.id HAVING COUNT(oi.id) > 5")
+					err = queryErr
+					if err == nil {
+						rows.Close()
 					}
-					rows.Close()
 				}
-				histogram.RecordValue(time.Since(startTime).Milliseconds())
+
+				mu.Lock()
+				if err != nil {
+					result.Errors++
+				} else {
+					result.Operations++
+					histogram.RecordValue(time.Since(startTime).Milliseconds())
+				}
+				mu.Unlock()
 			}
 		}()
 	}
 
 	wg.Wait()
 
-	result := &database.Result{
-		P95Latency: time.Duration(histogram.ValueAtQuantile(95)) * time.Millisecond,
-	}
+	result.TotalTime = duration
+	result.Throughput = float64(result.Operations) / duration.Seconds()
+	result.P95Latency = time.Duration(histogram.ValueAtQuantile(95)) * time.Millisecond
+	result.P99Latency = time.Duration(histogram.ValueAtQuantile(99)) * time.Millisecond
+	result.AverageLatency = time.Duration(histogram.Mean()) * time.Millisecond
 
 	return result, nil
 }
@@ -138,15 +151,15 @@ func (t *CatalogFilterTest) Teardown(ctx context.Context, db database.DatabaseDr
 				return err
 			}
 		} else {
-			_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS order_items")
+			_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS order_items CASCADE")
 			if err != nil {
 				return err
 			}
-			_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS orders")
+			_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS orders CASCADE")
 			if err != nil {
 				return err
 			}
-			_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
+			_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS products CASCADE")
 			if err != nil {
 				return err
 			}
