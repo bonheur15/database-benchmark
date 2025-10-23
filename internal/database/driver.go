@@ -36,8 +36,9 @@ type Rows interface {
 type DatabaseDriver interface {
 	Connect(dsn string) error
 	Close() error
+	Reset(ctx context.Context) error
 	// Add specific methods needed by workloads, e.g.:
-	ExecuteTx(ctx context.Context, txFunc func(interface{}) error) error
+	ExecuteTx(ctx context.Context, txFunc func(tx interface{}) error) error
 	ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error)
 	QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...interface{}) Row

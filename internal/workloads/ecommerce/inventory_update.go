@@ -3,6 +3,7 @@ package ecommerce
 import (
 	"context"
 	"database-benchmark/internal/database"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -17,21 +18,27 @@ type InventoryUpdateTest struct{}
 
 func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
 	fmt.Println("Starting setup")
-	if _, ok := db.(*database.MongoDriver); ok {
-		return db.ExecuteTx(ctx, func(tx interface{}) error {
+	if mongoDriver, ok := db.(*database.MongoDriver); ok {
+		return mongoDriver.ExecuteTx(ctx, func(tx interface{}) error {
 			ctx = context.WithValue(ctx, "tx", tx)
 			// Drop collection if it exists to ensure a clean state
-			db.ExecContext(ctx, "products", bson.M{})
-			_, err := db.ExecContext(ctx, "products", bson.M{"_id": "product1", "name": "test product", "inventory": 10000})
+			mongoDriver.ExecContext(ctx, "products", bson.M{})
+			_, err := mongoDriver.ExecContext(ctx, "products", bson.M{"_id": "product1", "name": "test product", "inventory": 10000})
 			return err
 		})
 	}
 
 	// For SQL, drop and recreate table
 	if err := db.ExecuteTx(ctx, func(tx interface{}) error {
-		ctx = context.WithValue(ctx, "tx", tx)
-		db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
-		_, err := db.ExecContext(ctx, GetProductSchema())
+		sqlTx, ok := tx.(*sql.Tx)
+		if !ok {
+			return fmt.Errorf("unexpected transaction type: %T", tx)
+		}
+		_, err := sqlTx.ExecContext(ctx, "DROP TABLE IF EXISTS products")
+		if err != nil {
+			return err
+		}
+		_, err = sqlTx.ExecContext(ctx, GetProductSchema())
 		return err
 	}); err != nil {
 		return err
@@ -40,8 +47,11 @@ func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDri
 	fmt.Println("Schema created successfully")
 
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 10000)
+		sqlTx, ok := tx.(*sql.Tx)
+		if !ok {
+			return fmt.Errorf("unexpected transaction type: %T", tx)
+		}
+		_, err := sqlTx.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES (?, ?, ?)", "product1", "test product", 10000)
 		return err
 	})
 }
@@ -66,8 +76,8 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 					return
 				default:
 					err := db.ExecuteTx(runCtx, func(tx interface{}) error {
-						txCtx := context.WithValue(runCtx, "tx", tx)
 						if mongoDriver, ok := db.(*database.MongoDriver); ok {
+							txCtx := context.WithValue(runCtx, "tx", tx)
 							res, err := mongoDriver.ExecContext(txCtx, "products", bson.M{"_id": "product1", "inventory": bson.M{"$gt": 0}}, bson.M{"$inc": bson.M{"inventory": -1}})
 							if err != nil {
 								return err
@@ -77,11 +87,19 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 							}
 							return nil
 						}
-						res, err := db.ExecContext(txCtx, "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0", "product1")
+						sqlTx, ok := tx.(*sql.Tx)
+						if !ok {
+							return fmt.Errorf("unexpected transaction type: %T", tx)
+						}
+						res, err := sqlTx.ExecContext(runCtx, "UPDATE products SET inventory = inventory - 1 WHERE id = ? AND inventory > 0", "product1")
 						if err != nil {
 							return err
 						}
-						if cmdTag, ok := res.(pgconn.CommandTag); ok && cmdTag.RowsAffected() == 0 {
+						rowsAffected, err := res.RowsAffected()
+						if err != nil {
+							return err
+						}
+						if rowsAffected == 0 {
 							return errors.New("inventory depleted")
 						}
 						return nil
@@ -141,16 +159,19 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 
 func (t *InventoryUpdateTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	fmt.Println("Teardown started")
-	if _, ok := db.(*database.MongoDriver); ok {
-		return db.ExecuteTx(ctx, func(tx interface{}) error {
+	if mongoDriver, ok := db.(*database.MongoDriver); ok {
+		return mongoDriver.ExecuteTx(ctx, func(tx interface{}) error {
 			ctx = context.WithValue(ctx, "tx", tx)
-			_, err := db.ExecContext(ctx, "products", bson.M{})
+			_, err := mongoDriver.ExecContext(ctx, "products", bson.M{})
 			return err
 		})
 	}
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
+		sqlTx, ok := tx.(*sql.Tx)
+		if !ok {
+			return fmt.Errorf("unexpected transaction type: %T", tx)
+		}
+		_, err := sqlTx.ExecContext(ctx, "DROP TABLE IF EXISTS products")
 		return err
 	})
 }

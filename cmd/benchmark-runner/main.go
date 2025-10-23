@@ -75,9 +75,14 @@ func main() {
 		log.Fatalf("Unsupported workload/test: %s/%s", *workloadName, *testName)
 	}
 
-	if err := workload.Teardown(context.Background(), driver); err != nil {
-		log.Fatalf("Failed to teardown database: %v", err)
+	if err := workload.Setup(context.Background(), driver); err != nil {
+		log.Fatalf("Failed to setup database: %v", err)
 	}
+	defer func() {
+		if err := workload.Teardown(context.Background(), driver); err != nil {
+			log.Printf("Failed to teardown database: %v", err)
+		}
+	}()
 
 	fmt.Printf("Running benchmark for %s/%s on %s...\n", *workloadName, *testName, *dbType)
 

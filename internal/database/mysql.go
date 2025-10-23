@@ -61,7 +61,7 @@ func (md *MySQLDriver) Reset(ctx context.Context) error {
 	return nil
 }
 
-func (md *MySQLDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) error) (err error) {
+func (md *MySQLDriver) ExecuteTx(ctx context.Context, txFunc func(tx interface{}) error) (err error) {
 	tx, err := md.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

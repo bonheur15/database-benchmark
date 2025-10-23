@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
 const (
@@ -33,18 +32,20 @@ func (t *IngestionTest) Run(ctx context.Context, db database.DatabaseDriver, con
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < NumEvents/concurrency; i++ {
-				eventID := uuid.New().String()
-				userID := fmt.Sprintf("user%d", i%1000)
-				productID := fmt.Sprintf("product%d", i%100)
-				region := fmt.Sprintf("region%d", i%10)
-				metricValue := float64(i)
-				db.ExecuteTx(ctx, func(tx interface{}) error {
-					ctx = context.WithValue(ctx, "tx", tx)
-					_, err := db.ExecContext(ctx, "events", bson.M{"_id": eventID, "event_timestamp": time.Now(), "user_id": userID, "product_id": productID, "region": region, "metric_value": metricValue})
-					return err
-				})
-			}
+			db.ExecuteTx(context.Background(), func(tx interface{}) error {
+				for i := 0; i < NumEvents/concurrency; i++ {
+					eventID := uuid.New().String()
+					userID := fmt.Sprintf("user%d", i%1000)
+					productID := fmt.Sprintf("product%d", i%100)
+					region := fmt.Sprintf("region%d", i%10)
+					metricValue := float64(i)
+					_, err := db.ExecContext(context.WithValue(context.Background(), "tx", tx), "INSERT INTO events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES ($1, $2, $3, $4, $5, $6)", eventID, time.Now(), userID, productID, region, metricValue)
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			})
 		}()
 	}
 
@@ -64,7 +65,7 @@ func (t *IngestionTest) Run(ctx context.Context, db database.DatabaseDriver, con
 func (t *IngestionTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, "events", bson.M{})
+		_, err := db.ExecContext(ctx, "TRUNCATE TABLE events")
 		return err
 	})
 }
