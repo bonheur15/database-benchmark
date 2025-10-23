@@ -11,14 +11,12 @@ func Run(ctx context.Context, driver database.DatabaseDriver, workload database.
 		return nil, err
 	}
 
-	result, err := workload.Run(ctx, driver, concurrency, duration)
-	if err != nil {
-		return nil, err
-	}
+	defer func() {
+		if err := workload.Teardown(ctx, driver); err != nil {
+			// We can't do much here, just log the error
+			println("Failed to teardown workload:", err.Error())
+		}
+	}()
 
-	if err := workload.Teardown(ctx, driver); err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return workload.Run(ctx, driver, concurrency, duration)
 }

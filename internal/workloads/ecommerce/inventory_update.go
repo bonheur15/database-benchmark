@@ -106,14 +106,10 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 
 func (t *InventoryUpdateTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	fmt.Println("Teardown started")
-	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		ctx = context.WithValue(ctx, "tx", tx)
-		if _, ok := db.(*database.MongoDriver); ok {
-			_, err := db.ExecContext(ctx, "products", bson.M{})
-			return err
-		} else {
-			_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
-			return err
-		}
-	})
+	if _, ok := db.(*database.MongoDriver); ok {
+		_, err := db.ExecContext(ctx, "products", bson.M{})
+		return err
+	}
+	_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS products")
+	return err
 }
