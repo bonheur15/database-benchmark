@@ -136,27 +136,46 @@ func (t *OrderProcessingTest) Run(ctx context.Context, db database.DatabaseDrive
 }
 
 func (t *OrderProcessingTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
-	if err := db.ExecuteTx(ctx, func(tx interface{}) error {
-		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, "order_items", bson.M{})
-		if err != nil {
-			return err
-		}
-		_, err = db.ExecContext(ctx, "payments", bson.M{})
-		if err != nil {
-			return err
-		}
-		_, err = db.ExecContext(ctx, "orders", bson.M{})
-		if err != nil {
-			return err
-		}
-		_, err = db.ExecContext(ctx, "products", bson.M{})
-		if err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
-		return err
+	if _, ok := db.(*database.MongoDriver); ok {
+		// MongoDB drop collections
+		return db.ExecuteTx(ctx, func(tx interface{}) error {
+			ctx = context.WithValue(ctx, "tx", tx)
+			_, err := db.ExecContext(ctx, "order_items", bson.M{})
+			if err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, "payments", bson.M{})
+			if err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, "orders", bson.M{})
+			if err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, "products", bson.M{})
+			if err != nil {
+				return err
+			}
+			return nil
+		})
 	}
-	return nil
+
+	// SQL drop tables
+	return db.ExecuteTx(ctx, func(tx interface{}) error {
+		ctx = context.WithValue(ctx, "tx", tx)
+		_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS order_items CASCADE")
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS payments CASCADE")
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS orders CASCADE")
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS products CASCADE")
+		return err
+	})
 }
