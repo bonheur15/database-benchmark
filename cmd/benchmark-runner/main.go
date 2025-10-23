@@ -49,12 +49,20 @@ func main() {
 	case "mongo":
 		dsn = cfg.Databases.Mongo
 	}
+	if err := driver.Connect(dsn); err != nil {
+		log.Fatalf("Failed to initial connect to %s: %v", *dbType, err)
+	}
+
+	fmt.Printf("Resetting database...\n")
+	if err := driver.Reset(context.Background()); err != nil {
+		log.Fatalf("Failed to reset database: %v", err)
+	}
 
 	if err := driver.Connect(dsn); err != nil {
-		log.Fatalf("Failed to connect to %s: %v", *dbType, err)
+		log.Fatalf("Failed to re-connect to %s: %v", *dbType, err)
 	}
-	defer driver.Close()
 
+	defer driver.Close()
 	workloads := map[string]map[string]database.Workload{
 		"ecommerce": {
 			"order_processing": &ecommerce.OrderProcessingTest{},
@@ -76,10 +84,11 @@ func main() {
 		log.Fatalf("Unsupported workload/test: %s/%s", *workloadName, *testName)
 	}
 
-	fmt.Printf("Resetting database...\n")
-	if err := driver.Reset(context.Background()); err != nil {
-		log.Fatalf("Failed to reset database: %v", err)
-	}
+	// This code block was moved up in the fix
+	// fmt.Printf("Resetting database...\n")
+	// if err := driver.Reset(context.Background()); err != nil {
+	// 	log.Fatalf("Failed to reset database: %v", err)
+	// }
 
 	fmt.Printf("Running benchmark for %s/%s on %s...\n", *workloadName, *testName, *dbType)
 
