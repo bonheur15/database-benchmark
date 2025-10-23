@@ -10,6 +10,7 @@ import (
 
 type MongoDriver struct {
 	client *mongo.Client
+	dsn    string
 }
 
 type MongoRow struct {
@@ -42,6 +43,7 @@ func (md *MongoDriver) Connect(dsn string) error {
 		return err
 	}
 	md.client = client
+	md.dsn = dsn
 	return nil
 }
 

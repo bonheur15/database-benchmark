@@ -111,6 +111,7 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 
 	wg.Wait()
 	result.TotalTime = time.Since(startTime)
+	result.Throughput = float64(result.Operations) / result.TotalTime.Seconds()
 
 	// Final integrity check
 	var finalInventory int

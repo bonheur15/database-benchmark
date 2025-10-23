@@ -12,6 +12,11 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
+const (
+	NumUsers   = 100
+	NumFollows = 1000
+)
+
 type FanOutOnWriteTest struct{}
 
 func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
@@ -50,7 +55,7 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 			if err != nil {
 				return err
 			}
-			_, err = db.ExecContext(ctx, "INSERT INTO timelines (user_id, post_ids) VALUES ($1, $2)", userID, "")
+			_, err = db.ExecContext(ctx, "INSERT INTO timelines (user_id, post_ids) VALUES ($1, $2)", userID, "{}")
 			if err != nil {
 				return err
 			}
@@ -77,21 +82,20 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 }
 
 func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
-	var wg sync.WaitGroup
-	wg.Add(2)
-
 	result := &database.Result{}
-	var writeTime time.Duration
-	var mu sync.Mutex
 
-	go func() {
-		defer wg.Done()
-		startTime := time.Now()
-		// Write Phase
-		for i := 0; i < 10; i++ {
+	// Write Phase
+	startTime := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
 			postID := uuid.New().String()
-			userID := fmt.Sprintf("user%d", i)
-			db.ExecuteTx(ctx, func(tx interface{}) error {
+			userID := fmt.Sprintf("user%d", i%NumUsers)
+
+			var err error
+			err = db.ExecuteTx(ctx, func(tx interface{}) error {
 				ctx = context.WithValue(ctx, "tx", tx)
 				if _, ok := db.(*database.MongoDriver); ok {
 					_, err := db.ExecContext(ctx, "posts", bson.M{"_id": postID, "user_id": userID, "content": "post content", "created_at": time.Now()})
@@ -136,7 +140,7 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 							return err
 						}
 
-						_, err = db.ExecContext(ctx, "UPDATE timelines SET post_ids = post_ids || ',' || $1 WHERE user_id = $2", postID, followerID)
+						_, err = db.ExecContext(ctx, "UPDATE timelines SET post_ids = array_append(post_ids, $1) WHERE user_id = $2", postID, followerID)
 						if err != nil {
 							return err
 						}
@@ -145,48 +149,53 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 
 				return nil
 			})
-		}
-		writeTime = time.Since(startTime)
-	}()
-
-	go func() {
-		defer wg.Done()
-		// Read Phase
-		histogram := hdrhistogram.New(1, 10000, 3)
-		deadline := time.Now().Add(duration)
-		for time.Now().Before(deadline) {
-			startTime := time.Now()
-			userID := fmt.Sprintf("user%d", time.Now().UnixNano()%NumUsers)
-			var err error
-			if _, ok := db.(*database.MongoDriver); ok {
-				row := db.QueryRowContext(ctx, "timelines", bson.M{"_id": userID})
-				var timeline struct {
-					PostIDs []string `bson:"post_ids"`
-				}
-				err = row.Scan(&timeline)
-			} else {
-				row := db.QueryRowContext(ctx, "SELECT post_ids FROM timelines WHERE user_id = $1", userID)
-				var postIDs string
-				err = row.Scan(&postIDs)
-			}
-
-			mu.Lock()
 			if err != nil {
 				result.Errors++
-			} else {
-				result.Operations++
-				histogram.RecordValue(time.Since(startTime).Milliseconds())
 			}
-			mu.Unlock()
-		}
-		result.P95Latency = time.Duration(histogram.ValueAtQuantile(95)) * time.Millisecond
-		result.P99Latency = time.Duration(histogram.ValueAtQuantile(99)) * time.Millisecond
-		result.AverageLatency = time.Duration(histogram.Mean()) * time.Millisecond
-	}()
-
+		}(i)
+	}
 	wg.Wait()
+	result.TotalTime = time.Since(startTime)
 
-	result.TotalTime = writeTime
+	// Read Phase
+	var readWg sync.WaitGroup
+	histogram := hdrhistogram.New(1, 10000, 3)
+	deadline := time.Now().Add(duration)
+	for i := 0; i < concurrency; i++ {
+		readWg.Add(1)
+		go func() {
+			defer readWg.Done()
+			var err error // Declare err once outside the inner loop
+			for time.Now().Before(deadline) {
+				startTime := time.Now()
+				userID := fmt.Sprintf("user%d", time.Now().UnixNano()%NumUsers)
+
+				if _, ok := db.(*database.MongoDriver); ok {
+					row := db.QueryRowContext(ctx, "timelines", bson.M{"_id": userID})
+					var timeline struct {
+						PostIDs []string `bson:"post_ids"`
+					}
+					err = row.Scan(&timeline)
+				} else {
+					row := db.QueryRowContext(ctx, "SELECT post_ids FROM timelines WHERE user_id = $1", userID)
+					var postIDs []string
+					err = row.Scan(&postIDs)
+				}
+
+				if err != nil {
+					result.Errors++
+				} else {
+					result.Operations++
+					histogram.RecordValue(time.Since(startTime).Milliseconds())
+				}
+			}
+		}()
+	}
+	readWg.Wait()
+
+	result.P95Latency = time.Duration(histogram.ValueAtQuantile(95)) * time.Millisecond
+	result.P99Latency = time.Duration(histogram.ValueAtQuantile(99)) * time.Millisecond
+	result.AverageLatency = time.Duration(histogram.Mean()) * time.Millisecond
 	result.Throughput = float64(result.Operations) / duration.Seconds()
 
 	return result, nil
@@ -213,7 +222,7 @@ func (t *FanOutOnWriteTest) Teardown(ctx context.Context, db database.DatabaseDr
 				return err
 			}
 		} else {
-			_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS timelines CASCADE")
+			_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS posts CASCADE")
 			if err != nil {
 				return err
 			}
@@ -221,7 +230,7 @@ func (t *FanOutOnWriteTest) Teardown(ctx context.Context, db database.DatabaseDr
 			if err != nil {
 				return err
 			}
-			_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS posts CASCADE")
+			_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS timelines CASCADE")
 			if err != nil {
 				return err
 			}

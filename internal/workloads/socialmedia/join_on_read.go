@@ -15,11 +15,9 @@ import (
 )
 
 const (
-	NumUsers       = 1000
 	NumPosts       = 10000
-	NumFollows     = 100000
-	PostsPerUser   = NumPosts / NumUsers
-	FollowsPerUser = NumFollows / NumUsers
+	PostsPerUser   = NumPosts / 1000
+	FollowsPerUser = 100000 / 1000
 )
 
 type JoinOnReadTest struct{}

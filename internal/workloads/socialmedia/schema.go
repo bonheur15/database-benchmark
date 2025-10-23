@@ -34,7 +34,7 @@ func GetTimelinesSchema() string {
 	return `
 		CREATE TABLE IF NOT EXISTS timelines (
 			user_id VARCHAR(255) PRIMARY KEY,
-			post_ids TEXT NOT NULL
+			post_ids TEXT[] NOT NULL
 		);
 	`
 }

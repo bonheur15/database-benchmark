@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 type MySQLDriver struct {
-	db *sql.DB
+	db  *sql.DB
+	dsn string
 }
 
 func (md *MySQLDriver) Connect(dsn string) error {
@@ -18,6 +20,7 @@ func (md *MySQLDriver) Connect(dsn string) error {
 		return err
 	}
 	md.db = db
+	md.dsn = dsn
 	return nil
 }
 
@@ -80,6 +83,7 @@ func (md *MySQLDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) e
 }
 
 func (md *MySQLDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
+	query = replacePlaceholders(query)
 	if tx, ok := ctx.Value("tx").(*sql.Tx); ok {
 		return tx.ExecContext(ctx, query, args...)
 	}
@@ -95,6 +99,7 @@ func (r *MySQLRows) Close() {
 }
 
 func (md *MySQLDriver) QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error) {
+	query = replacePlaceholders(query)
 	if tx, ok := ctx.Value("tx").(*sql.Tx); ok {
 		rows, err := tx.QueryContext(ctx, query, args...)
 		if err != nil {
@@ -110,8 +115,23 @@ func (md *MySQLDriver) QueryContext(ctx context.Context, query string, args ...i
 }
 
 func (md *MySQLDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {
+	query = replacePlaceholders(query)
 	if tx, ok := ctx.Value("tx").(*sql.Tx); ok {
 		return tx.QueryRowContext(ctx, query, args...)
 	}
 	return md.db.QueryRowContext(ctx, query, args...)
+}
+
+func replacePlaceholders(query string) string {
+	// Replace $1, $2, etc. with ?
+	// This is a simple implementation that might not cover all edge cases,
+	// but it should work for the queries in this benchmark.
+	for i := 1; ; i++ {
+		placeholder := fmt.Sprintf("$%d", i)
+		if !strings.Contains(query, placeholder) {
+			break
+		}
+		query = strings.Replace(query, placeholder, "?", 1)
+	}
+	return query
 }
