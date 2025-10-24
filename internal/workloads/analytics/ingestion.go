@@ -19,8 +19,15 @@ type IngestionTest struct{}
 func (t *IngestionTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, GetEventsSchema())
-		return err
+
+		if _, ok := db.(*database.MongoDriver); !ok {
+			// Only execute schema for SQL databases
+			_, err := db.ExecContext(ctx, GetEventsSchema())
+			if err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 
@@ -68,11 +75,16 @@ func (t *IngestionTest) Run(ctx context.Context, db database.DatabaseDriver, con
 func (t *IngestionTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
-		query := "TRUNCATE TABLE analytics_events"
-		if _, ok := db.(*database.MySQLDriver); ok {
-			query = "TRUNCATE TABLE analytics_events"
+		if _, ok := db.(*database.MongoDriver); ok {
+			_, err := db.ExecContext(ctx, "analytics_events") // Delete all documents from the collection
+			return err
+		} else {
+			query := "TRUNCATE TABLE analytics_events"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "TRUNCATE TABLE analytics_events"
+			}
+			_, err := db.ExecContext(ctx, query)
+			return err
 		}
-		_, err := db.ExecContext(ctx, query)
-		return err
 	})
 }
