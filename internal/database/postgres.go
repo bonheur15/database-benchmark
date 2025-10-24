@@ -27,41 +27,22 @@ func (pd *PostgresDriver) Close() error {
 }
 
 func (pd *PostgresDriver) Reset(ctx context.Context) error {
-	rows, err := pd.pool.Query(ctx, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-	if err != nil {
-		return err
-	}
+	fmt.Println("Resetting PostgreSQL database...")
 
-	// Collect all table names first
-	var tableNames []string
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			rows.Close()
-			return err
-		}
-		tableNames = append(tableNames, tableName)
-	}
-	rows.Close()
+	tablesToDrop := []string{"order_items", "payments", "orders", "products"}
 
-	// Check for any errors during iteration
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	// Now drop all tables
-	for _, tableName := range tableNames {
-		_, err = pd.pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", tableName))
+	for _, tableName := range tablesToDrop {
+		fmt.Printf("Dropping table: %s\n", tableName)
+		_, err := pd.pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", tableName))
 		if err != nil {
 			return err
 		}
-		fmt.Println("Dropped table:", tableName)
 	}
 
 	return nil
 }
 
-func (pd *PostgresDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) error) (err error) {
+func (pd *PostgresDriver) ExecuteTx(ctx context.Context, txFunc func(tx interface{}) error) (err error) {
 	tx, err := pd.pool.Begin(ctx)
 	if err != nil {
 		return err

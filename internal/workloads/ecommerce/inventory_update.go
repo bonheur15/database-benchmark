@@ -37,13 +37,12 @@ func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDri
 	// For SQL, drop and recreate table
 	if err := db.ExecuteTx(ctx, func(tx interface{}) error {
 		var sqlTx Tx
-		var ok bool
-		if sqlTx, ok = tx.(Tx); !ok {
-			if pgxTx, pgxOK := tx.(pgx.Tx); pgxOK {
-				sqlTx = &pgxTxAdapter{pgxTx}
-			} else {
-				return fmt.Errorf("unexpected transaction type: %T", tx)
-			}
+		if pgxTx, ok := tx.(pgx.Tx); ok {
+			sqlTx = &pgxTxAdapter{pgxTx}
+		} else if genericTx, ok := tx.(Tx); ok {
+			sqlTx = genericTx
+		} else {
+			return fmt.Errorf("unexpected transaction type: %T", tx)
 		}
 
 		_, err := sqlTx.ExecContext(ctx, "DROP TABLE IF EXISTS products")
@@ -60,13 +59,12 @@ func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDri
 
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		var sqlTx Tx
-		var ok bool
-		if sqlTx, ok = tx.(Tx); !ok {
-			if pgxTx, pgxOK := tx.(pgx.Tx); pgxOK {
-				sqlTx = &pgxTxAdapter{pgxTx}
-			} else {
-				return fmt.Errorf("unexpected transaction type: %T", tx)
-			}
+		if pgxTx, ok := tx.(pgx.Tx); ok {
+			sqlTx = &pgxTxAdapter{pgxTx}
+		} else if genericTx, ok := tx.(Tx); ok {
+			sqlTx = genericTx
+		} else {
+			return fmt.Errorf("unexpected transaction type: %T", tx)
 		}
 		_, err := sqlTx.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 10000)
 		return err
@@ -212,13 +210,12 @@ func (t *InventoryUpdateTest) Teardown(ctx context.Context, db database.Database
 	}
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		var sqlTx Tx
-		var ok bool
-		if sqlTx, ok = tx.(Tx); !ok {
-			if pgxTx, pgxOK := tx.(pgx.Tx); pgxOK {
-				sqlTx = &pgxTxAdapter{pgxTx}
-			} else {
-				return fmt.Errorf("unexpected transaction type: %T", tx)
-			}
+		if pgxTx, ok := tx.(pgx.Tx); ok {
+			sqlTx = &pgxTxAdapter{pgxTx}
+		} else if genericTx, ok := tx.(Tx); ok {
+			sqlTx = genericTx
+		} else {
+			return fmt.Errorf("unexpected transaction type: %T", tx)
 		}
 		_, err := sqlTx.ExecContext(ctx, "DROP TABLE IF EXISTS products")
 		return err

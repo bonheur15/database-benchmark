@@ -4,6 +4,7 @@ import (
 	"context"
 	"database-benchmark/internal/database"
 	"time"
+	"fmt"
 
 	"github.com/HdrHistogram/hdrhistogram-go"
 	"github.com/google/uuid"
@@ -13,6 +14,7 @@ import (
 type OrderProcessingTest struct{}
 
 func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
+	fmt.Println("Setting up OrderProcessingTest...")
 	if _, ok := db.(*database.MongoDriver); ok {
 		// MongoDB does not use SQL schemas, collections are created implicitly
 		// Seed a product for MongoDB
@@ -47,6 +49,7 @@ func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDri
 	}
 
 	// Seed a product for SQL databases
+	fmt.Println("Seeding product for SQL databases...")
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 		_, err := db.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 100)

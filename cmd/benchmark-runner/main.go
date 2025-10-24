@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"database-benchmark/internal/config"
@@ -16,6 +17,11 @@ import (
 )
 
 func main() {
+	var exitCode int
+	defer func() {
+		os.Exit(exitCode)
+	}()
+
 	dbType := flag.String("db", "postgres", "database type (postgres, mysql, or mongo)")
 	workloadName := flag.String("workload", "ecommerce", "workload to run (ecommerce, socialmedia, or analytics)")
 	testName := flag.String("test", "order_processing", "test to run")
@@ -26,7 +32,9 @@ func main() {
 
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Printf("Failed to load config: %v", err)
+		exitCode = 1
+		return
 	}
 
 	dbs := map[string]database.DatabaseDriver{
@@ -37,7 +45,9 @@ func main() {
 
 	driver, ok := dbs[*dbType]
 	if !ok {
-		log.Fatalf("Unsupported database type: %s", *dbType)
+		log.Printf("Unsupported database type: %s", *dbType)
+		exitCode = 1
+		return
 	}
 
 	var dsn string
@@ -50,7 +60,9 @@ func main() {
 		dsn = cfg.Databases.Mongo
 	}
 	if err := driver.Connect(dsn); err != nil {
-		log.Fatalf("Failed to connect to %s: %v", *dbType, err)
+		log.Printf("Failed to connect to %s: %v", *dbType, err)
+		exitCode = 1
+		return
 	}
 	defer driver.Close()
 
@@ -72,11 +84,22 @@ func main() {
 
 	workload, ok := workloads[*workloadName][*testName]
 	if !ok {
-		log.Fatalf("Unsupported workload/test: %s/%s", *workloadName, *testName)
+		log.Printf("Unsupported workload/test: %s/%s", *workloadName, *testName)
+		exitCode = 1
+		return
+	}
+
+	// Reset the database to ensure a clean state before setup
+	if err := driver.Reset(context.Background()); err != nil {
+		log.Printf("Failed to reset database: %v", err)
+		exitCode = 1
+		return
 	}
 
 	if err := workload.Setup(context.Background(), driver); err != nil {
-		log.Fatalf("Failed to setup database: %v", err)
+		log.Printf("Failed to setup database: %v", err)
+		exitCode = 1
+		return
 	}
 	defer func() {
 		if err := workload.Teardown(context.Background(), driver); err != nil {
@@ -88,7 +111,9 @@ func main() {
 
 	result, err := runner.Run(context.Background(), driver, workload, *concurrency, *duration)
 	if err != nil {
-		log.Fatalf("Benchmark failed: %v", err)
+		log.Printf("Benchmark failed: %v", err)
+		exitCode = 1
+		return
 	}
 
 	fmt.Printf("Result: %+v\n", result)
