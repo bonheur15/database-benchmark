@@ -2,7 +2,7 @@ package analytics
 
 func GetEventsSchema() string {
 	return `
-		CREATE TABLE IF NOT EXISTS events (
+		CREATE TABLE IF NOT EXISTS analytics_events (
 			event_id VARCHAR(255) PRIMARY KEY,
 			event_timestamp TIMESTAMP NOT NULL,
 			user_id VARCHAR(255) NOT NULL,

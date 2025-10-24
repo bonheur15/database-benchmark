@@ -39,7 +39,7 @@ func (t *IngestionTest) Run(ctx context.Context, db database.DatabaseDriver, con
 					productID := fmt.Sprintf("product%d", i%100)
 					region := fmt.Sprintf("region%d", i%10)
 					metricValue := float64(i)
-					_, err := db.ExecContext(context.WithValue(context.Background(), "tx", tx), "INSERT INTO events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES ($1, $2, $3, $4, $5, $6)", eventID, time.Now(), userID, productID, region, metricValue)
+					_, err := db.ExecContext(context.WithValue(context.Background(), "tx", tx), "INSERT INTO analytics_events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES ($1, $2, $3, $4, $5, $6)", eventID, time.Now(), userID, productID, region, metricValue)
 					if err != nil {
 						return err
 					}
