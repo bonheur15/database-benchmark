@@ -22,6 +22,7 @@ func (t *DashboardQueryTest) Setup(ctx context.Context, db database.DatabaseDriv
 		}
 
 		for i := 0; i < 100000; i++ {
+			fmt.Println("Inserting event", i)
 			eventID := uuid.New().String()
 			userID := fmt.Sprintf("user%d", i%1000)
 			productID := fmt.Sprintf("product%d", i%100)

@@ -65,7 +65,7 @@ func (t *IngestionTest) Run(ctx context.Context, db database.DatabaseDriver, con
 func (t *IngestionTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, "TRUNCATE TABLE events")
+		_, err := db.ExecContext(ctx, "TRUNCATE TABLE analytics_events")
 		return err
 	})
 }
