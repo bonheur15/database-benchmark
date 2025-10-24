@@ -12,9 +12,15 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type InventoryUpdateTest struct{}
+
+type Tx interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
 
 func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
 	fmt.Println("Starting setup")
@@ -30,10 +36,16 @@ func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDri
 
 	// For SQL, drop and recreate table
 	if err := db.ExecuteTx(ctx, func(tx interface{}) error {
-		sqlTx, ok := tx.(*sql.Tx)
-		if !ok {
-			return fmt.Errorf("unexpected transaction type: %T", tx)
+		var sqlTx Tx
+		var ok bool
+		if sqlTx, ok = tx.(Tx); !ok {
+			if pgxTx, pgxOK := tx.(pgx.Tx); pgxOK {
+				sqlTx = &pgxTxAdapter{pgxTx}
+			} else {
+				return fmt.Errorf("unexpected transaction type: %T", tx)
+			}
 		}
+
 		_, err := sqlTx.ExecContext(ctx, "DROP TABLE IF EXISTS products")
 		if err != nil {
 			return err
@@ -47,13 +59,39 @@ func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDri
 	fmt.Println("Schema created successfully")
 
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		sqlTx, ok := tx.(*sql.Tx)
-		if !ok {
-			return fmt.Errorf("unexpected transaction type: %T", tx)
+		var sqlTx Tx
+		var ok bool
+		if sqlTx, ok = tx.(Tx); !ok {
+			if pgxTx, pgxOK := tx.(pgx.Tx); pgxOK {
+				sqlTx = &pgxTxAdapter{pgxTx}
+			} else {
+				return fmt.Errorf("unexpected transaction type: %T", tx)
+			}
 		}
-		_, err := sqlTx.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES (?, ?, ?)", "product1", "test product", 10000)
+		_, err := sqlTx.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 10000)
 		return err
 	})
+}
+
+type pgxTxAdapter struct {
+	pgx.Tx
+}
+
+func (a *pgxTxAdapter) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	tag, err := a.Tx.Exec(ctx, query, args...)
+	return pgxResult{tag}, err
+}
+
+type pgxResult struct {
+	pgconn.CommandTag
+}
+
+func (r pgxResult) LastInsertId() (int64, error) {
+	return 0, errors.New("LastInsertId not supported by pgx")
+}
+
+func (r pgxResult) RowsAffected() (int64, error) {
+	return r.CommandTag.RowsAffected(), nil
 }
 
 func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
@@ -87,11 +125,17 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 							}
 							return nil
 						}
-						sqlTx, ok := tx.(*sql.Tx)
-						if !ok {
-							return fmt.Errorf("unexpected transaction type: %T", tx)
+
+						var sqlTx Tx
+						var ok bool
+						if sqlTx, ok = tx.(Tx); !ok {
+							if pgxTx, pgxOK := tx.(pgx.Tx); pgxOK {
+								sqlTx = &pgxTxAdapter{pgxTx}
+							} else {
+								return fmt.Errorf("unexpected transaction type: %T", tx)
+							}
 						}
-						res, err := sqlTx.ExecContext(runCtx, "UPDATE products SET inventory = inventory - 1 WHERE id = ? AND inventory > 0", "product1")
+						res, err := sqlTx.ExecContext(runCtx, "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0", "product1")
 						if err != nil {
 							return err
 						}
@@ -167,9 +211,14 @@ func (t *InventoryUpdateTest) Teardown(ctx context.Context, db database.Database
 		})
 	}
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		sqlTx, ok := tx.(*sql.Tx)
-		if !ok {
-			return fmt.Errorf("unexpected transaction type: %T", tx)
+		var sqlTx Tx
+		var ok bool
+		if sqlTx, ok = tx.(Tx); !ok {
+			if pgxTx, pgxOK := tx.(pgx.Tx); pgxOK {
+				sqlTx = &pgxTxAdapter{pgxTx}
+			} else {
+				return fmt.Errorf("unexpected transaction type: %T", tx)
+			}
 		}
 		_, err := sqlTx.ExecContext(ctx, "DROP TABLE IF EXISTS products")
 		return err
