@@ -12,15 +12,15 @@ type Workload interface {
 }
 
 type Result struct {
-	Operations      int64
-	Errors          int64
-	Throughput      float64
-	P95Latency      time.Duration
-	P99Latency      time.Duration
-	AverageLatency  time.Duration
-	ErrorRate       float64
-	TotalTime       time.Duration
-	DataIntegrity   bool
+	Operations     int64
+	Errors         int64
+	Throughput     float64
+	P95Latency     time.Duration
+	P99Latency     time.Duration
+	AverageLatency time.Duration
+	ErrorRate      float64
+	TotalTime      time.Duration
+	DataIntegrity  bool
 }
 
 type Row interface {

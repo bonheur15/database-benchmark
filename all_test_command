@@ -1,0 +1,28 @@
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=postgres --workload=analytics --test=dashboard_query
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=postgres --workload=analytics --test=ingestion
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=postgres --workload=ecommerce --test=catalog_filter
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=postgres --workload=ecommerce --test=inventory_update
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=postgres --workload=ecommerce --test=order_processing
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=postgres --workload=socialmedia --test=fan_out_on_write
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=postgres --workload=socialmedia --test=join_on_read
+
+
+
+
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mysql --workload=analytics --test=dashboard_query
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mysql --workload=analytics --test=ingestion
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mysql --workload=ecommerce --test=catalog_filter
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mysql --workload=ecommerce --test=inventory_update
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mysql --workload=ecommerce --test=order_processing
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mysql --workload=socialmedia --test=fan_out_on_write
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mysql --workload=socialmedia --test=join_on_read
+
+
+
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mongo --workload=analytics --test=dashboard_query
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mongo --workload=analytics --test=ingestion
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mongo --workload=ecommerce --test=catalog_filter
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mongo --workload=ecommerce --test=inventory_update
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mongo --workload=ecommerce --test=order_processing
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mongo --workload=socialmedia --test=fan_out_on_write
+go build -o benchmark-runner cmd/benchmark-runner/main.go && ./benchmark-runner --db=mongo --workload=socialmedia --test=join_on_read
