@@ -16,9 +16,13 @@ type DashboardQueryTest struct{}
 func (t *DashboardQueryTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, GetEventsSchema())
-		if err != nil {
-			return err
+
+		if _, ok := db.(*database.MongoDriver); !ok {
+			// Only execute schema for SQL databases
+			_, err := db.ExecContext(ctx, GetEventsSchema())
+			if err != nil {
+				return err
+			}
 		}
 
 		for i := 0; i < 100000; i++ {
@@ -27,13 +31,30 @@ func (t *DashboardQueryTest) Setup(ctx context.Context, db database.DatabaseDriv
 			productID := fmt.Sprintf("product%d", i%100)
 			region := fmt.Sprintf("region%d", i%10)
 			metricValue := float64(i)
-			query := "INSERT INTO analytics_events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES ($1, $2, $3, $4, $5, $6)"
-			if _, ok := db.(*database.MySQLDriver); ok {
-				query = "INSERT INTO analytics_events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES (?, ?, ?, ?, ?, ?)"
-			}
-			_, err := db.ExecContext(ctx, query, eventID, time.Now(), userID, productID, region, metricValue)
-			if err != nil {
-				return err
+
+			if _, ok := db.(*database.MongoDriver); ok {
+				// For MongoDB, insert directly into the collection
+				_, err := db.ExecContext(ctx, "analytics_events", bson.M{
+					"_id": eventID,
+					"event_timestamp": time.Now(),
+					"user_id": userID,
+					"product_id": productID,
+					"region": region,
+					"metric_value": metricValue,
+				})
+				if err != nil {
+					return err
+				}
+			} else {
+				// For SQL databases, use parameterized insert
+				query := "INSERT INTO analytics_events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES ($1, $2, $3, $4, $5, $6)"
+				if _, ok := db.(*database.MySQLDriver); ok {
+					query = "INSERT INTO analytics_events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES (?, ?, ?, ?, ?, ?)"
+				}
+				_, err := db.ExecContext(ctx, query, eventID, time.Now(), userID, productID, region, metricValue)
+				if err != nil {
+					return err
+				}
 			}
 		}
 
@@ -73,11 +94,16 @@ func (t *DashboardQueryTest) Run(ctx context.Context, db database.DatabaseDriver
 func (t *DashboardQueryTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
-		query := "TRUNCATE TABLE analytics_events"
-		if _, ok := db.(*database.MySQLDriver); ok {
-			query = "TRUNCATE TABLE analytics_events"
+		if _, ok := db.(*database.MongoDriver); ok {
+			_, err := db.ExecContext(ctx, "analytics_events") // Delete all documents from the collection
+			return err
+		} else {
+			query := "TRUNCATE TABLE analytics_events"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "TRUNCATE TABLE analytics_events"
+			}
+			_, err := db.ExecContext(ctx, query)
+			return err
 		}
-		_, err := db.ExecContext(ctx, query)
-		return err
 	})
 }

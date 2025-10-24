@@ -6,6 +6,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"strings"
 )
 
 type MongoDriver struct {
@@ -69,6 +70,12 @@ func (md *MongoDriver) ExecuteTx(ctx context.Context, txFunc func(interface{}) e
 		return nil, nil
 	})
 
+	// If the error is due to transactions not being supported (e.g., standalone server),
+	// execute the function directly without a transaction.
+	if err != nil && strings.Contains(err.Error(), "Transaction numbers are only allowed on a replica set member or mongos") {
+		return txFunc(ctx)
+	}
+
 	return err
 }
 
@@ -76,19 +83,10 @@ func (md *MongoDriver) ExecContext(ctx context.Context, query string, args ...in
 	collection := md.client.Database("benchmarkdb").Collection(query)
 
 	if len(args) == 1 {
-		if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
-			return collection.InsertOne(sessCtx, args[0])
-		}
 		return collection.InsertOne(ctx, args[0])
 	} else if len(args) == 2 {
-		if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
-			return collection.UpdateOne(sessCtx, args[0], args[1])
-		}
 		return collection.UpdateOne(ctx, args[0], args[1])
 	} else if len(args) == 0 {
-		if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
-			return collection.DeleteMany(sessCtx, bson.M{})
-		}
 		return collection.DeleteMany(ctx, bson.M{})
 	}
 
@@ -99,11 +97,7 @@ func (md *MongoDriver) QueryContext(ctx context.Context, query string, args ...i
 	collection := md.client.Database("benchmarkdb").Collection(query)
 	var cursor *mongo.Cursor
 	var err error
-	if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
-		cursor, err = collection.Find(sessCtx, args[0])
-	} else {
-		cursor, err = collection.Find(ctx, args[0])
-	}
+	cursor, err = collection.Find(ctx, args[0])
 	if err != nil {
 		return nil, err
 	}
@@ -113,10 +107,6 @@ func (md *MongoDriver) QueryContext(ctx context.Context, query string, args ...i
 func (md *MongoDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {
 	collection := md.client.Database("benchmarkdb").Collection(query)
 	var singleResult *mongo.SingleResult
-	if sessCtx, ok := ctx.Value("tx").(mongo.SessionContext); ok {
-		singleResult = collection.FindOne(sessCtx, args[0])
-	} else {
-		singleResult = collection.FindOne(ctx, args[0])
-	}
+	singleResult = collection.FindOne(ctx, args[0])
 	return &MongoRow{singleResult: singleResult}
 }

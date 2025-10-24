@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: benchmarkdb
     ports:
       - "5432:5432"
-    # volumes:
-    #   - postgres_data:/var/lib/postgresql/data
 
   mysql:
     image: mysql:8.0
@@ -17,17 +15,8 @@ services:
       MYSQL_DATABASE: benchmarkdb
     ports:
       - "3306:3306"
-    # volumes:
-    #   - mysql_data:/var/lib/mysql
 
   mongo:
     image: mongo:6.0
     ports:
       - "27017:27017"
-    # volumes:
-    #   - mongo_data:/data/db
-    command: mongod --replSet rs0 --bind_ip localhost,mongo
-# volumes:
-# postgres_data:
-# mysql_data:
-# mongo_data:
