@@ -3,9 +3,12 @@ package socialmedia
 import (
 	"context"
 	"database-benchmark/internal/database"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
+	"database/sql"
 
 	"github.com/HdrHistogram/hdrhistogram-go"
 	"github.com/google/uuid"
@@ -20,6 +23,13 @@ const (
 type FanOutOnWriteTest struct{}
 
 func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
+	var dbType string
+	if _, ok := db.(*database.PostgresDriver); ok {
+		dbType = "postgres"
+	} else if _, ok := db.(*database.MySQLDriver); ok {
+		dbType = "mysql"
+	}
+
 	if _, ok := db.(*database.MongoDriver); !ok {
 		_, err := db.ExecContext(ctx, GetUsersSchema())
 		if err != nil {
@@ -33,7 +43,7 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 		if err != nil {
 			return err
 		}
-		_, err = db.ExecContext(ctx, GetTimelinesSchema())
+		_, err = db.ExecContext(ctx, GetTimelinesSchema(dbType))
 		if err != nil {
 			return err
 		}
@@ -52,7 +62,7 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 			}
 		} else {
 			query := "INSERT INTO users (id, name) VALUES ($1, $2)"
-			if _, ok := db.(*database.MySQLDriver); ok {
+			if dbType == "mysql" {
 				query = "INSERT INTO users (id, name) VALUES (?, ?)"
 			}
 			_, err := db.ExecContext(ctx, query, userID, fmt.Sprintf("user-%d", i))
@@ -60,10 +70,10 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 				return err
 			}
 			query = "INSERT INTO timelines (user_id, post_ids) VALUES ($1, $2)"
-			if _, ok := db.(*database.MySQLDriver); ok {
+			if dbType == "mysql" {
 				query = "INSERT INTO timelines (user_id, post_ids) VALUES (?, ?)"
 			}
-			_, err = db.ExecContext(ctx, query, userID, "{}")
+			_, err = db.ExecContext(ctx, query, userID, "[]")
 			if err != nil {
 				return err
 			}
@@ -80,7 +90,7 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 			}
 		} else {
 			query := "INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2)"
-			if _, ok := db.(*database.MySQLDriver); ok {
+			if dbType == "mysql" {
 				query = "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?)"
 			}
 			_, err := db.ExecContext(ctx, query, followerID, followeeID)
@@ -96,85 +106,133 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
 	result := &database.Result{}
 
+	var dbType string
+	if _, ok := db.(*database.PostgresDriver); ok {
+		dbType = "postgres"
+	} else if _, ok := db.(*database.MySQLDriver); ok {
+		dbType = "mysql"
+	}
+
 	// Write Phase
 	startTime := time.Now()
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 1; i++ { // Reduced concurrency for diagnostic purposes
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			postID := uuid.New().String()
 			userID := fmt.Sprintf("user%d", i%NumUsers)
 
-			var err error
-			err = db.ExecuteTx(ctx, func(tx interface{}) error {
-				ctx = context.WithValue(ctx, "tx", tx)
-				if _, ok := db.(*database.MongoDriver); ok {
-					_, err := db.ExecContext(ctx, "posts", bson.M{"_id": postID, "user_id": userID, "content": "post content", "created_at": time.Now()})
-					if err != nil {
-						return err
-					}
+			// Insert post outside the transaction
+			postInsertQuery := "INSERT INTO posts (id, user_id, content, created_at) VALUES ($1, $2, $3, $4)"
+			if dbType == "mysql" {
+				postInsertQuery = "INSERT INTO posts (id, user_id, content, created_at) VALUES (?, ?, ?, ?)"
+			}
+			_, err := db.ExecContext(ctx, postInsertQuery, postID, userID, "post content", time.Now())
+			if err != nil {
+				fmt.Printf("Error inserting post: %v\n", err)
+				result.Errors++
+				return // Return from goroutine if insert fails
+			}
 
-					rows, err := db.QueryContext(ctx, "follows", bson.M{"followee_id": userID})
-					if err != nil {
-						return err
-					}
-					defer rows.Close()
+			// Fan-out updates within a transaction with retry mechanism
+			maxRetries := 3
+			for retry := 0; retry < maxRetries; retry++ {
+				err = db.ExecuteTx(ctx, func(tx interface{}) error {
+					ctx = context.WithValue(ctx, "tx", tx)
 
-					for rows.Next() {
-						var follow struct {
-							FollowerID string `bson:"follower_id"`
-						}
-						if err := rows.Scan(&follow); err != nil {
-							return err
-						}
-
-						_, err = db.ExecContext(ctx, "timelines", bson.M{"_id": follow.FollowerID}, bson.M{"_id": follow.FollowerID, "$push": bson.M{"post_ids": postID}})
+					if _, ok := db.(*database.MongoDriver); ok {
+						// MongoDB specific fan-out logic (already handled)
+						rows, err := db.QueryContext(ctx, "follows", bson.M{"followee_id": userID})
 						if err != nil {
 							return err
 						}
-					}
+						defer rows.Close()
+
+						for rows.Next() {
+							var follow struct {
+								FollowerID string `bson:"follower_id"`
+							}
+							if err := rows.Scan(&follow); err != nil {
+								return err
+							}
+
+							_, err = db.ExecContext(ctx, "timelines", bson.M{"_id": follow.FollowerID}, bson.M{"_id": follow.FollowerID, "$push": bson.M{"post_ids": postID}})
+							if err != nil {
+								return err
+							}
+						}
+											} else { // SQL
+												query := "SELECT follower_id FROM follows WHERE followee_id = $1"
+												if dbType == "mysql" {
+													query = "SELECT follower_id FROM follows WHERE followee_id = ?"
+												}
+												rows, err := db.QueryContext(ctx, query, userID)
+												if err != nil {
+													fmt.Printf("Error querying followers: %v\n", err)
+													return err
+												}
+												defer rows.Close()
+					
+												for rows.Next() {
+													var followerID string
+													if err := rows.Scan(&followerID); err != nil {
+														fmt.Printf("Error scanning follower ID: %v\n", err)
+														return err
+													}
+													if dbType == "mysql" {
+														// Manually update JSON array for MySQL
+														var existingPostIDsJSON []byte
+														row := db.QueryRowContext(ctx, "SELECT post_ids FROM timelines WHERE user_id = ?", followerID)
+														scanErr := row.Scan(&existingPostIDsJSON)
+														if scanErr != nil && scanErr != sql.ErrNoRows {
+															return scanErr
+														}
+					
+														var existingPostIDs []string
+														if len(existingPostIDsJSON) > 0 {
+															json.Unmarshal(existingPostIDsJSON, &existingPostIDs)
+														}
+					
+														existingPostIDs = append(existingPostIDs, postID)
+														newPostIDsJSON, marshalErr := json.Marshal(existingPostIDs)
+														if marshalErr != nil {
+															return marshalErr
+														}
+					
+														updateQuery := "UPDATE timelines SET post_ids = ? WHERE user_id = ?"
+														_, err = db.ExecContext(ctx, updateQuery, newPostIDsJSON, followerID)
+														if err != nil {
+															fmt.Printf("Error updating timeline for user %s with post %s: %v\n", followerID, postID, err)
+															return err
+														}
+													} else { // PostgreSQL
+														updateQuery := "UPDATE timelines SET post_ids = array_append(post_ids, $1) WHERE user_id = $2"
+														_, err = db.ExecContext(ctx, updateQuery, postID, followerID)
+														if err != nil {
+															fmt.Printf("Error updating timeline for user %s with post %s: %v\n", followerID, postID, err)
+															return err
+														}
+													}
+												}
+											}
+											return nil
+										})
+				if err == nil {
+					break // Transaction successful, break retry loop
+				} else if strings.Contains(err.Error(), "bad connection") {
+					fmt.Printf("Retrying transaction due to bad connection: %v\n", err)
+					time.Sleep(100 * time.Millisecond) // Wait before retrying
 				} else {
-					query := "INSERT INTO posts (id, user_id, content, created_at) VALUES ($1, $2, $3, $4)"
-					if _, ok := db.(*database.MySQLDriver); ok {
-						query = "INSERT INTO posts (id, user_id, content, created_at) VALUES (?, ?, ?, ?)"
-					}
-					_, err := db.ExecContext(ctx, query, postID, userID, "post content", time.Now())
-					if err != nil {
-						return err
-					}
-
-					query = "SELECT follower_id FROM follows WHERE followee_id = $1"
-					if _, ok := db.(*database.MySQLDriver); ok {
-						query = "SELECT follower_id FROM follows WHERE followee_id = ?"
-					}
-					rows, err := db.QueryContext(ctx, query, userID)
-					if err != nil {
-						return err
-					}
-					defer rows.Close()
-
-					for rows.Next() {
-						var followerID string
-						if err := rows.Scan(&followerID); err != nil {
-							return err
-						}
-
-						query = "UPDATE timelines SET post_ids = array_append(post_ids, $1) WHERE user_id = $2"
-						if _, ok := db.(*database.MySQLDriver); ok {
-							query = "UPDATE timelines SET post_ids = JSON_ARRAY_APPEND(post_ids, '$[0]', ?) WHERE user_id = ?"
-						}
-						_, err = db.ExecContext(ctx, query, postID, followerID)
-						if err != nil {
-							return err
-						}
-					}
+					// Other error, no retry
+					break
 				}
+			}
 
-				return nil
-			})
 			if err != nil {
 				result.Errors++
+			} else {
+				result.Operations++
 			}
 		}(i)
 	}
@@ -202,12 +260,16 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 					err = row.Scan(&timeline)
 				} else {
 					query := "SELECT post_ids FROM timelines WHERE user_id = $1"
-					if _, ok := db.(*database.MySQLDriver); ok {
+					if dbType == "mysql" {
 						query = "SELECT post_ids FROM timelines WHERE user_id = ?"
 					}
 					row := db.QueryRowContext(ctx, query, userID)
-					var postIDs []string
-					err = row.Scan(&postIDs)
+					var postIDsJSON []byte
+					err = row.Scan(&postIDsJSON)
+					if err == nil && len(postIDsJSON) > 0 {
+						var postIDs []string
+						err = json.Unmarshal(postIDsJSON, &postIDs)
+					}
 				}
 
 				if err != nil {

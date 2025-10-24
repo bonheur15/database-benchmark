@@ -30,7 +30,15 @@ func GetFollowsSchema() string {
 	`
 }
 
-func GetTimelinesSchema() string {
+func GetTimelinesSchema(dbType string) string {
+	if dbType == "mysql" {
+		return `
+			CREATE TABLE IF NOT EXISTS timelines (
+				user_id VARCHAR(255) PRIMARY KEY,
+				post_ids JSON NOT NULL
+			);
+		`
+	}
 	return `
 		CREATE TABLE IF NOT EXISTS timelines (
 			user_id VARCHAR(255) PRIMARY KEY,

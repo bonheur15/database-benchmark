@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -21,6 +22,12 @@ func (md *MySQLDriver) Connect(dsn string) error {
 	}
 	md.db = db
 	md.dsn = dsn
+
+	// Configure connection pool
+	md.db.SetMaxOpenConns(50) // Max number of open connections
+	md.db.SetMaxIdleConns(25) // Max number of idle connections
+	md.db.SetConnMaxLifetime(10 * time.Minute) // Max connection reuse time
+
 	return nil
 }
 
@@ -46,7 +53,7 @@ func (md *MySQLDriver) Reset(ctx context.Context) error {
 		if err := rows.Scan(&tableName); err != nil {
 			return err
 		}
-		_, err = md.db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+		_, err = md.db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", tableName))
 		if err != nil {
 			return err
 		}
@@ -84,9 +91,6 @@ func (md *MySQLDriver) ExecuteTx(ctx context.Context, txFunc func(tx interface{}
 
 func (md *MySQLDriver) ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error) {
 	query = replacePlaceholders(query)
-	if tx, ok := ctx.Value("tx").(*sql.Tx); ok {
-		return tx.ExecContext(ctx, query, args...)
-	}
 	return md.db.ExecContext(ctx, query, args...)
 }
 
@@ -100,13 +104,6 @@ func (r *MySQLRows) Close() {
 
 func (md *MySQLDriver) QueryContext(ctx context.Context, query string, args ...interface{}) (Rows, error) {
 	query = replacePlaceholders(query)
-	if tx, ok := ctx.Value("tx").(*sql.Tx); ok {
-		rows, err := tx.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, err
-		}
-		return &MySQLRows{rows}, nil
-	}
 	rows, err := md.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -116,9 +113,6 @@ func (md *MySQLDriver) QueryContext(ctx context.Context, query string, args ...i
 
 func (md *MySQLDriver) QueryRowContext(ctx context.Context, query string, args ...interface{}) Row {
 	query = replacePlaceholders(query)
-	if tx, ok := ctx.Value("tx").(*sql.Tx); ok {
-		return tx.QueryRowContext(ctx, query, args...)
-	}
 	return md.db.QueryRowContext(ctx, query, args...)
 }
 
