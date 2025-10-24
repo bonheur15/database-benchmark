@@ -5,4 +5,4 @@ databases:
 
 benchmark_settings:
   default_duration: "30s"
-  default_concurrency: 100
+  default_concurrency: 10

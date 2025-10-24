@@ -97,7 +97,11 @@ func (md *MongoDriver) QueryContext(ctx context.Context, query string, args ...i
 	collection := md.client.Database("benchmarkdb").Collection(query)
 	var cursor *mongo.Cursor
 	var err error
-	cursor, err = collection.Find(ctx, args[0])
+	if pipeline, ok := args[0].([]bson.M); ok {
+		cursor, err = collection.Aggregate(ctx, pipeline)
+	} else {
+		cursor, err = collection.Find(ctx, args[0])
+	}
 	if err != nil {
 		return nil, err
 	}
