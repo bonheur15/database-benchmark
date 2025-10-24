@@ -66,7 +66,11 @@ func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDri
 		} else {
 			return fmt.Errorf("unexpected transaction type: %T", tx)
 		}
-		_, err := sqlTx.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 10000)
+		query := "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)"
+		if _, ok := db.(*database.MySQLDriver); ok {
+			query = "INSERT INTO products (id, name, inventory) VALUES (?, ?, ?)"
+		}
+		_, err := sqlTx.ExecContext(ctx, query, "product1", "test product", 10000)
 		return err
 	})
 }
@@ -133,7 +137,11 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 								return fmt.Errorf("unexpected transaction type: %T", tx)
 							}
 						}
-						res, err := sqlTx.ExecContext(runCtx, "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0", "product1")
+						query := "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0"
+						if _, ok := db.(*database.MySQLDriver); ok {
+							query = "UPDATE products SET inventory = inventory - 1 WHERE id = ? AND inventory > 0"
+						}
+						res, err := sqlTx.ExecContext(runCtx, query, "product1")
 						if err != nil {
 							return err
 						}
@@ -185,7 +193,11 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 		}
 		finalInventory = product.Inventory
 	} else {
-		row := db.QueryRowContext(ctx, "SELECT inventory FROM products WHERE id = $1", "product1")
+		query := "SELECT inventory FROM products WHERE id = $1"
+		if _, ok := db.(*database.MySQLDriver); ok {
+			query = "SELECT inventory FROM products WHERE id = ?"
+		}
+		row := db.QueryRowContext(ctx, query, "product1")
 		if err := row.Scan(&finalInventory); err != nil {
 			return nil, fmt.Errorf("failed to read final inventory: %w", err)
 		}

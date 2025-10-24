@@ -70,7 +70,11 @@ func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) 
 
 	for i := 0; i < NumUsers; i++ {
 		userID := fmt.Sprintf("user%d", i)
-		_, err := db.ExecContext(ctx, "INSERT INTO users (id, name) VALUES ($1, $2)", userID, fmt.Sprintf("user-%d", i))
+		query := "INSERT INTO users (id, name) VALUES ($1, $2)"
+		if _, ok := db.(*database.MySQLDriver); ok {
+			query = "INSERT INTO users (id, name) VALUES (?, ?)"
+		}
+		_, err := db.ExecContext(ctx, query, userID, fmt.Sprintf("user-%d", i))
 		if err != nil {
 			return err
 		}
@@ -79,7 +83,11 @@ func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) 
 	for i := 0; i < NumPosts; i++ {
 		postID := uuid.New().String()
 		userID := fmt.Sprintf("user%d", i%NumUsers)
-		_, err := db.ExecContext(ctx, "INSERT INTO posts (id, user_id, content, created_at) VALUES ($1, $2, $3, $4)", postID, userID, "post content", time.Now())
+		query := "INSERT INTO posts (id, user_id, content, created_at) VALUES ($1, $2, $3, $4)"
+		if _, ok := db.(*database.MySQLDriver); ok {
+			query = "INSERT INTO posts (id, user_id, content, created_at) VALUES (?, ?, ?, ?)"
+		}
+		_, err := db.ExecContext(ctx, query, postID, userID, "post content", time.Now())
 		if err != nil {
 			return err
 		}
@@ -88,7 +96,11 @@ func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) 
 	for i := 0; i < NumFollows; i++ {
 		followerID := fmt.Sprintf("user%d", i%NumUsers)
 		followeeID := fmt.Sprintf("user%d", (i+1)%NumUsers)
-		_, err := db.ExecContext(ctx, "INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2)", followerID, followeeID)
+		query := "INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2)"
+		if _, ok := db.(*database.MySQLDriver); ok {
+			query = "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?)"
+		}
+		_, err := db.ExecContext(ctx, query, followerID, followeeID)
 		if err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
@@ -124,7 +136,11 @@ func (t *JoinOnReadTest) Run(ctx context.Context, db database.DatabaseDriver, co
 						rows.Close()
 					}
 				} else {
-					rows, queryErr := db.QueryContext(ctx, "SELECT p.* FROM posts p JOIN follows f ON p.user_id = f.followee_id WHERE f.follower_id = $1", userID)
+					query := "SELECT p.* FROM posts p JOIN follows f ON p.user_id = f.followee_id WHERE f.follower_id = $1"
+					if _, ok := db.(*database.MySQLDriver); ok {
+						query = "SELECT p.* FROM posts p JOIN follows f ON p.user_id = f.followee_id WHERE f.follower_id = ?"
+					}
+					rows, queryErr := db.QueryContext(ctx, query, userID)
 					err = queryErr
 					if err == nil {
 						rows.Close()
@@ -194,7 +210,11 @@ func getFolloweeIDs(ctx context.Context, db database.DatabaseDriver, userID stri
 	if _, ok := db.(*database.MongoDriver); ok {
 		rows, err = db.QueryContext(ctx, "follows", bson.M{"follower_id": userID})
 	} else {
-		rows, err = db.QueryContext(ctx, "SELECT followee_id FROM follows WHERE follower_id = $1", userID)
+		query := "SELECT followee_id FROM follows WHERE follower_id = $1"
+		if _, ok := db.(*database.MySQLDriver); ok {
+			query = "SELECT followee_id FROM follows WHERE follower_id = ?"
+		}
+		rows, err = db.QueryContext(ctx, query, userID)
 	}
 
 	if err != nil {

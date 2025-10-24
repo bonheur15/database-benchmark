@@ -22,13 +22,16 @@ func (t *DashboardQueryTest) Setup(ctx context.Context, db database.DatabaseDriv
 		}
 
 		for i := 0; i < 100000; i++ {
-			fmt.Println("Inserting event", i)
 			eventID := uuid.New().String()
 			userID := fmt.Sprintf("user%d", i%1000)
 			productID := fmt.Sprintf("product%d", i%100)
 			region := fmt.Sprintf("region%d", i%10)
 			metricValue := float64(i)
-			_, err := db.ExecContext(ctx, "INSERT INTO analytics_events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES ($1, $2, $3, $4, $5, $6)", eventID, time.Now(), userID, productID, region, metricValue)
+			query := "INSERT INTO analytics_events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES ($1, $2, $3, $4, $5, $6)"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "INSERT INTO analytics_events (event_id, event_timestamp, user_id, product_id, region, metric_value) VALUES (?, ?, ?, ?, ?, ?)"
+			}
+			_, err := db.ExecContext(ctx, query, eventID, time.Now(), userID, productID, region, metricValue)
 			if err != nil {
 				return err
 			}
@@ -70,7 +73,11 @@ func (t *DashboardQueryTest) Run(ctx context.Context, db database.DatabaseDriver
 func (t *DashboardQueryTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, "TRUNCATE TABLE analytics_events")
+		query := "TRUNCATE TABLE analytics_events"
+		if _, ok := db.(*database.MySQLDriver); ok {
+			query = "TRUNCATE TABLE analytics_events"
+		}
+		_, err := db.ExecContext(ctx, query)
 		return err
 	})
 }

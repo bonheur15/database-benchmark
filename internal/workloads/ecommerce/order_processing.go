@@ -52,7 +52,11 @@ func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDri
 	fmt.Println("Seeding product for SQL databases...")
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
-		_, err := db.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", "product1", "test product", 100)
+		query := "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)"
+		if _, ok := db.(*database.MySQLDriver); ok {
+			query = "INSERT INTO products (id, name, inventory) VALUES (?, ?, ?)"
+		}
+		_, err := db.ExecContext(ctx, query, "product1", "test product", 100)
 		return err
 	})
 }
@@ -94,24 +98,40 @@ func (t *OrderProcessingTest) Run(ctx context.Context, db database.DatabaseDrive
 					return err
 				}
 			} else {
-				_, err := db.ExecContext(ctx, "INSERT INTO orders (id, user_id, created_at) VALUES ($1, $2, $3)", orderID, userID, time.Now())
+				query := "INSERT INTO orders (id, user_id, created_at) VALUES ($1, $2, $3)"
+				if _, ok := db.(*database.MySQLDriver); ok {
+					query = "INSERT INTO orders (id, user_id, created_at) VALUES (?, ?, ?)"
+				}
+				_, err := db.ExecContext(ctx, query, orderID, userID, time.Now())
 				if err != nil {
 					return err
 				}
 
 				orderItemID := uuid.New().String()
-				_, err = db.ExecContext(ctx, "INSERT INTO order_items (id, order_id, product_id, quantity) VALUES ($1, $2, 'product1', 1)", orderItemID, orderID)
+				query = "INSERT INTO order_items (id, order_id, product_id, quantity) VALUES ($1, $2, 'product1', 1)"
+				if _, ok := db.(*database.MySQLDriver); ok {
+					query = "INSERT INTO order_items (id, order_id, product_id, quantity) VALUES (?, ?, 'product1', 1)"
+				}
+				_, err = db.ExecContext(ctx, query, orderItemID, orderID)
 				if err != nil {
 					return err
 				}
 
 				paymentID := uuid.New().String()
-				_, err = db.ExecContext(ctx, "INSERT INTO payments (id, order_id, amount) VALUES ($1, $2, 10.50)", paymentID, orderID)
+				query = "INSERT INTO payments (id, order_id, amount) VALUES ($1, $2, 10.50)"
+				if _, ok := db.(*database.MySQLDriver); ok {
+					query = "INSERT INTO payments (id, order_id, amount) VALUES (?, ?, 10.50)"
+				}
+				_, err = db.ExecContext(ctx, query, paymentID, orderID)
 				if err != nil {
 					return err
 				}
 
-				_, err = db.ExecContext(ctx, "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0", "product1")
+				query = "UPDATE products SET inventory = inventory - 1 WHERE id = $1 AND inventory > 0"
+				if _, ok := db.(*database.MySQLDriver); ok {
+					query = "UPDATE products SET inventory = inventory - 1 WHERE id = ? AND inventory > 0"
+				}
+				_, err = db.ExecContext(ctx, query, "product1")
 				if err != nil {
 					return err
 				}

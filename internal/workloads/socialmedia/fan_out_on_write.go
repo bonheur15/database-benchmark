@@ -51,11 +51,19 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 				return err
 			}
 		} else {
-			_, err := db.ExecContext(ctx, "INSERT INTO users (id, name) VALUES ($1, $2)", userID, fmt.Sprintf("user-%d", i))
+			query := "INSERT INTO users (id, name) VALUES ($1, $2)"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "INSERT INTO users (id, name) VALUES (?, ?)"
+			}
+			_, err := db.ExecContext(ctx, query, userID, fmt.Sprintf("user-%d", i))
 			if err != nil {
 				return err
 			}
-			_, err = db.ExecContext(ctx, "INSERT INTO timelines (user_id, post_ids) VALUES ($1, $2)", userID, "{}")
+			query = "INSERT INTO timelines (user_id, post_ids) VALUES ($1, $2)"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "INSERT INTO timelines (user_id, post_ids) VALUES (?, ?)"
+			}
+			_, err = db.ExecContext(ctx, query, userID, "{}")
 			if err != nil {
 				return err
 			}
@@ -71,7 +79,11 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 				// Ignore duplicate key errors
 			}
 		} else {
-			_, err := db.ExecContext(ctx, "INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2)", followerID, followeeID)
+			query := "INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2)"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?)"
+			}
+			_, err := db.ExecContext(ctx, query, followerID, followeeID)
 			if err != nil {
 				// Ignore duplicate key errors
 			}
@@ -123,12 +135,20 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 						}
 					}
 				} else {
-					_, err := db.ExecContext(ctx, "INSERT INTO posts (id, user_id, content, created_at) VALUES ($1, $2, $3, $4)", postID, userID, "post content", time.Now())
+					query := "INSERT INTO posts (id, user_id, content, created_at) VALUES ($1, $2, $3, $4)"
+					if _, ok := db.(*database.MySQLDriver); ok {
+						query = "INSERT INTO posts (id, user_id, content, created_at) VALUES (?, ?, ?, ?)"
+					}
+					_, err := db.ExecContext(ctx, query, postID, userID, "post content", time.Now())
 					if err != nil {
 						return err
 					}
 
-					rows, err := db.QueryContext(ctx, "SELECT follower_id FROM follows WHERE followee_id = $1", userID)
+					query = "SELECT follower_id FROM follows WHERE followee_id = $1"
+					if _, ok := db.(*database.MySQLDriver); ok {
+						query = "SELECT follower_id FROM follows WHERE followee_id = ?"
+					}
+					rows, err := db.QueryContext(ctx, query, userID)
 					if err != nil {
 						return err
 					}
@@ -140,7 +160,11 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 							return err
 						}
 
-						_, err = db.ExecContext(ctx, "UPDATE timelines SET post_ids = array_append(post_ids, $1) WHERE user_id = $2", postID, followerID)
+						query = "UPDATE timelines SET post_ids = array_append(post_ids, $1) WHERE user_id = $2"
+						if _, ok := db.(*database.MySQLDriver); ok {
+							query = "UPDATE timelines SET post_ids = JSON_ARRAY_APPEND(post_ids, '$[0]', ?) WHERE user_id = ?"
+						}
+						_, err = db.ExecContext(ctx, query, postID, followerID)
 						if err != nil {
 							return err
 						}
@@ -177,7 +201,11 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 					}
 					err = row.Scan(&timeline)
 				} else {
-					row := db.QueryRowContext(ctx, "SELECT post_ids FROM timelines WHERE user_id = $1", userID)
+					query := "SELECT post_ids FROM timelines WHERE user_id = $1"
+					if _, ok := db.(*database.MySQLDriver); ok {
+						query = "SELECT post_ids FROM timelines WHERE user_id = ?"
+					}
+					row := db.QueryRowContext(ctx, query, userID)
 					var postIDs []string
 					err = row.Scan(&postIDs)
 				}

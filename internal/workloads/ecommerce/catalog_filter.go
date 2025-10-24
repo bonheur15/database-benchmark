@@ -61,19 +61,31 @@ func (t *CatalogFilterTest) Setup(ctx context.Context, db database.DatabaseDrive
 
 		for i := 0; i < 100; i++ {
 			productID := uuid.New().String()
-			_, err := db.ExecContext(ctx, "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)", productID, fmt.Sprintf("product-%d", i), 100)
+			query := "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "INSERT INTO products (id, name, inventory) VALUES (?, ?, ?)"
+			}
+			_, err := db.ExecContext(ctx, query, productID, fmt.Sprintf("product-%d", i), 100)
 			if err != nil {
 				return err
 			}
 			for j := 0; j < rand.Intn(10); j++ {
 				orderID := uuid.New().String()
 				userID := uuid.New().String()
-				_, err = db.ExecContext(ctx, "INSERT INTO orders (id, user_id, created_at) VALUES ($1, $2, $3)", orderID, userID, time.Now())
+				query := "INSERT INTO orders (id, user_id, created_at) VALUES ($1, $2, $3)"
+				if _, ok := db.(*database.MySQLDriver); ok {
+					query = "INSERT INTO orders (id, user_id, created_at) VALUES (?, ?, ?)"
+				}
+				_, err = db.ExecContext(ctx, query, orderID, userID, time.Now())
 				if err != nil {
 					return err
 				}
 				orderItemID := uuid.New().String()
-				_, err = db.ExecContext(ctx, "INSERT INTO order_items (id, order_id, product_id, quantity) VALUES ($1, $2, $3, $4)", orderItemID, orderID, productID, 1)
+				query = "INSERT INTO order_items (id, order_id, product_id, quantity) VALUES ($1, $2, $3, $4)"
+				if _, ok := db.(*database.MySQLDriver); ok {
+					query = "INSERT INTO order_items (id, order_id, product_id, quantity) VALUES (?, ?, ?, ?)"
+				}
+				_, err = db.ExecContext(ctx, query, orderItemID, orderID, productID, 1)
 				if err != nil {
 					return err
 				}
