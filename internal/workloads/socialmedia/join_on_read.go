@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.mongodb.org/mongo-driver/bson"
+	"github.com/go-sql-driver/mysql"
 )
 
 const (
@@ -101,15 +102,17 @@ func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) 
 			query = "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?)"
 		}
 		_, err := db.ExecContext(ctx, query, followerID, followeeID)
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
-				// do nothing
-			} else {
-				return err
-			}
-		}
-	}
+					if err != nil {
+						var pgErr *pgconn.PgError
+						var mysqlErr *mysql.MySQLError
+						if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+							// do nothing
+						} else if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 { // Duplicate entry for MySQL
+							// do nothing
+						} else {
+							return err
+						}
+					}	}
 
 	return nil
 }
