@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -116,5 +117,11 @@ func main() {
 		return
 	}
 
-	fmt.Printf("Result: %+v\n", result)
+	jsonOutput, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal result: %v", err)
+		exitCode = 1
+		return
+	}
+	fmt.Println(string(jsonOutput))
 }

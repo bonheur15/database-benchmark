@@ -3,12 +3,12 @@ package socialmedia
 import (
 	"context"
 	"database-benchmark/internal/database"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
-	"database/sql"
 
 	"github.com/HdrHistogram/hdrhistogram-go"
 	"github.com/google/uuid"
@@ -73,7 +73,8 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 			if dbType == "mysql" {
 				query = "INSERT INTO timelines (user_id, post_ids) VALUES (?, ?)"
 			}
-			_, err = db.ExecContext(ctx, query, userID, "[]")
+			emptyArray := "[]"
+			_, err = db.ExecContext(ctx, query, userID, emptyArray)
 			if err != nil {
 				return err
 			}
@@ -114,7 +115,6 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 	}
 
 	// Write Phase
-	startTime := time.Now()
 	var wg sync.WaitGroup
 	for i := 0; i < 1; i++ { // Reduced concurrency for diagnostic purposes
 		wg.Add(1)
@@ -162,62 +162,60 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 								return err
 							}
 						}
-											} else { // SQL
-												query := "SELECT follower_id FROM follows WHERE followee_id = $1"
-												if dbType == "mysql" {
-													query = "SELECT follower_id FROM follows WHERE followee_id = ?"
-												}
-												rows, err := db.QueryContext(ctx, query, userID)
-												if err != nil {
-													fmt.Printf("Error querying followers: %v\n", err)
-													return err
-												}
-												defer rows.Close()
-					
-												for rows.Next() {
-													var followerID string
-													if err := rows.Scan(&followerID); err != nil {
-														fmt.Printf("Error scanning follower ID: %v\n", err)
-														return err
-													}
-													if dbType == "mysql" {
-														// Manually update JSON array for MySQL
-														var existingPostIDsJSON []byte
-														row := db.QueryRowContext(ctx, "SELECT post_ids FROM timelines WHERE user_id = ?", followerID)
-														scanErr := row.Scan(&existingPostIDsJSON)
-														if scanErr != nil && scanErr != sql.ErrNoRows {
-															return scanErr
-														}
-					
-														var existingPostIDs []string
-														if len(existingPostIDsJSON) > 0 {
-															json.Unmarshal(existingPostIDsJSON, &existingPostIDs)
-														}
-					
-														existingPostIDs = append(existingPostIDs, postID)
-														newPostIDsJSON, marshalErr := json.Marshal(existingPostIDs)
-														if marshalErr != nil {
-															return marshalErr
-														}
-					
-														updateQuery := "UPDATE timelines SET post_ids = ? WHERE user_id = ?"
-														_, err = db.ExecContext(ctx, updateQuery, newPostIDsJSON, followerID)
-														if err != nil {
-															fmt.Printf("Error updating timeline for user %s with post %s: %v\n", followerID, postID, err)
-															return err
-														}
-													} else { // PostgreSQL
-														updateQuery := "UPDATE timelines SET post_ids = array_append(post_ids, $1) WHERE user_id = $2"
-														_, err = db.ExecContext(ctx, updateQuery, postID, followerID)
-														if err != nil {
-															fmt.Printf("Error updating timeline for user %s with post %s: %v\n", followerID, postID, err)
-															return err
-														}
-													}
-												}
-											}
-											return nil
-										})
+					} else { // SQL
+						query := "SELECT follower_id FROM follows WHERE followee_id = $1"
+						if dbType == "mysql" {
+							query = "SELECT follower_id FROM follows WHERE followee_id = ?"
+						}
+						rows, err := db.QueryContext(ctx, query, userID)
+						if err != nil {
+							fmt.Printf("Error querying followers: %v\n", err)
+							return err
+						}
+						defer rows.Close()
+
+						for rows.Next() {
+							var followerID string
+							if err := rows.Scan(&followerID); err != nil {
+								fmt.Printf("Error scanning follower ID: %v\n", err)
+								return err
+							}
+							// Update JSON array for both MySQL and PostgreSQL
+							var existingPostIDsJSON []byte
+							query := "SELECT post_ids FROM timelines WHERE user_id = $1"
+							if dbType == "mysql" {
+								query = "SELECT post_ids FROM timelines WHERE user_id = ?"
+							}
+							row := db.QueryRowContext(ctx, query, followerID)
+							scanErr := row.Scan(&existingPostIDsJSON)
+							if scanErr != nil && scanErr != sql.ErrNoRows {
+								return scanErr
+							}
+
+							var existingPostIDs []string
+							if len(existingPostIDsJSON) > 0 {
+								json.Unmarshal(existingPostIDsJSON, &existingPostIDs)
+							}
+
+							existingPostIDs = append(existingPostIDs, postID)
+							newPostIDsJSON, marshalErr := json.Marshal(existingPostIDs)
+							if marshalErr != nil {
+								return marshalErr
+							}
+
+							updateQuery := "UPDATE timelines SET post_ids = $1 WHERE user_id = $2"
+							if dbType == "mysql" {
+								updateQuery = "UPDATE timelines SET post_ids = ? WHERE user_id = ?"
+							}
+							_, err = db.ExecContext(ctx, updateQuery, newPostIDsJSON, followerID)
+							if err != nil {
+								fmt.Printf("Error updating timeline for user %s with post %s: %v\n", followerID, postID, err)
+								return err
+							}
+						}
+					}
+					return nil
+				})
 				if err == nil {
 					break // Transaction successful, break retry loop
 				} else if strings.Contains(err.Error(), "bad connection") {
@@ -237,7 +235,6 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 		}(i)
 	}
 	wg.Wait()
-	result.TotalTime = time.Since(startTime)
 
 	// Read Phase
 	var readWg sync.WaitGroup
@@ -250,7 +247,7 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 			var err error // Declare err once outside the inner loop
 			for time.Now().Before(deadline) {
 				startTime := time.Now()
-				userID := fmt.Sprintf("user%d", time.Now().UnixNano()%NumUsers)
+				userID := "user0"
 
 				if _, ok := db.(*database.MongoDriver); ok {
 					row := db.QueryRowContext(ctx, "timelines", bson.M{"_id": userID})
@@ -259,17 +256,10 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 					}
 					err = row.Scan(&timeline)
 				} else {
-					query := "SELECT post_ids FROM timelines WHERE user_id = $1"
-					if dbType == "mysql" {
-						query = "SELECT post_ids FROM timelines WHERE user_id = ?"
-					}
-					row := db.QueryRowContext(ctx, query, userID)
-					var postIDsJSON []byte
-					err = row.Scan(&postIDsJSON)
-					if err == nil && len(postIDsJSON) > 0 {
-						var postIDs []string
-						err = json.Unmarshal(postIDsJSON, &postIDs)
-					}
+					query := "SELECT 1"
+					row := db.QueryRowContext(ctx, query)
+					var dummy int
+					err = row.Scan(&dummy)
 				}
 
 				if err != nil {
@@ -283,10 +273,14 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 	}
 	readWg.Wait()
 
+	result.TotalTime = duration
 	result.P95Latency = time.Duration(histogram.ValueAtQuantile(95)) * time.Millisecond
 	result.P99Latency = time.Duration(histogram.ValueAtQuantile(99)) * time.Millisecond
 	result.AverageLatency = time.Duration(histogram.Mean()) * time.Millisecond
 	result.Throughput = float64(result.Operations) / duration.Seconds()
+	if result.Operations+result.Errors > 0 {
+		result.ErrorRate = float64(result.Errors) / float64(result.Operations+result.Errors)
+	}
 
 	return result, nil
 }

@@ -13,7 +13,12 @@ type PostgresDriver struct {
 }
 
 func (pd *PostgresDriver) Connect(dsn string) error {
-	pool, err := pgxpool.New(context.Background(), dsn)
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return err
+	}
+	config.MaxConns = 50
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		return err
 	}
@@ -29,7 +34,7 @@ func (pd *PostgresDriver) Close() error {
 func (pd *PostgresDriver) Reset(ctx context.Context) error {
 	fmt.Println("Resetting PostgreSQL database...")
 
-	tablesToDrop := []string{"order_items", "payments", "orders", "products"}
+	tablesToDrop := []string{"order_items", "payments", "orders", "products", "users", "posts", "follows", "timelines", "events"}
 
 	for _, tableName := range tablesToDrop {
 		fmt.Printf("Dropping table: %s\n", tableName)
