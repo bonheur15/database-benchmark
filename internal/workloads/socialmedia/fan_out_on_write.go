@@ -203,7 +203,7 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 								return marshalErr
 							}
 
-							updateQuery := "UPDATE timelines SET post_ids = $1 WHERE user_id = $2"
+							updateQuery := "UPDATE timelines SET post_ids = post_ids || $1::jsonb WHERE user_id = $2"
 							if dbType == "mysql" {
 								updateQuery = "UPDATE timelines SET post_ids = ? WHERE user_id = ?"
 							}
@@ -290,4 +290,58 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 	}
 
 	return result, nil
+}
+
+func (t *FanOutOnWriteTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
+	return db.ExecuteTx(ctx, func(tx interface{}) error {
+		ctx = context.WithValue(ctx, "tx", tx)
+
+		if _, ok := db.(*database.MongoDriver); ok {
+			_, err := db.ExecContext(ctx, "timelines", bson.M{})
+			if err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, "follows", bson.M{})
+			if err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, "posts", bson.M{})
+			if err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, "users", bson.M{})
+			return err
+		} else {
+			query := "DROP TABLE IF EXISTS timelines CASCADE"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "DROP TABLE IF EXISTS timelines"
+			}
+			_, err := db.ExecContext(ctx, query)
+			if err != nil {
+				return err
+			}
+			query = "DROP TABLE IF EXISTS follows CASCADE"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "DROP TABLE IF EXISTS follows"
+			}
+			_, err = db.ExecContext(ctx, query)
+			if err != nil {
+				return err
+			}
+			query = "DROP TABLE IF EXISTS posts CASCADE"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "DROP TABLE IF EXISTS posts"
+			}
+			_, err = db.ExecContext(ctx, query)
+			if err != nil {
+				return err
+			}
+			query = "DROP TABLE IF EXISTS users CASCADE"
+			if _, ok := db.(*database.MySQLDriver); ok {
+				query = "DROP TABLE IF EXISTS users"
+			}
+			_, err = db.ExecContext(ctx, query)
+			return err
+		}
+	})
 }
