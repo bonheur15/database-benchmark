@@ -255,11 +255,18 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 						PostIDs []string `bson:"post_ids"`
 					}
 					err = row.Scan(&timeline)
-				} else {
-					query := "SELECT 1"
-					row := db.QueryRowContext(ctx, query)
-					var dummy int
-					err = row.Scan(&dummy)
+				} else { // SQL
+					query := "SELECT post_ids FROM timelines WHERE user_id = $1"
+					if dbType == "mysql" {
+						query = "SELECT post_ids FROM timelines WHERE user_id = ?"
+					}
+					row := db.QueryRowContext(ctx, query, userID)
+					var postIDsJSON []byte
+					err = row.Scan(&postIDsJSON)
+					if err == nil && len(postIDsJSON) > 0 {
+						var postIDs []string
+						err = json.Unmarshal(postIDsJSON, &postIDs)
+					}
 				}
 
 				if err != nil {
@@ -283,46 +290,4 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 	}
 
 	return result, nil
-}
-
-func (t *FanOutOnWriteTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
-	return db.ExecuteTx(ctx, func(tx interface{}) error {
-		ctx = context.WithValue(ctx, "tx", tx)
-		if _, ok := db.(*database.MongoDriver); ok {
-			_, err := db.ExecContext(ctx, "timelines", bson.M{})
-			if err != nil {
-				return err
-			}
-			_, err = db.ExecContext(ctx, "follows", bson.M{})
-			if err != nil {
-				return err
-			}
-			_, err = db.ExecContext(ctx, "posts", bson.M{})
-			if err != nil {
-				return err
-			}
-			_, err = db.ExecContext(ctx, "users", bson.M{})
-			if err != nil {
-				return err
-			}
-		} else {
-			_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS posts CASCADE")
-			if err != nil {
-				return err
-			}
-			_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS follows CASCADE")
-			if err != nil {
-				return err
-			}
-			_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS timelines CASCADE")
-			if err != nil {
-				return err
-			}
-			_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS users CASCADE")
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }

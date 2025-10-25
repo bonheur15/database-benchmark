@@ -42,7 +42,7 @@ func GetTimelinesSchema(dbType string) string {
 	return `
 		CREATE TABLE IF NOT EXISTS timelines (
 			user_id VARCHAR(255) PRIMARY KEY,
-			post_ids TEXT NOT NULL DEFAULT '[]'
+			post_ids JSONB NOT NULL DEFAULT '[]'
 		);
 	`
 }
