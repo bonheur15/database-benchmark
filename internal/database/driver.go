@@ -2,13 +2,14 @@ package database
 
 import (
 	"context"
+	"log"
 	"time"
 )
 
 type Workload interface {
-	Setup(ctx context.Context, db DatabaseDriver) error
-	Run(ctx context.Context, db DatabaseDriver, concurrency int, duration time.Duration) (*Result, error)
-	Teardown(ctx context.Context, db DatabaseDriver) error
+	Setup(ctx context.Context, db DatabaseDriver, logger *log.Logger) error
+	Run(ctx context.Context, db DatabaseDriver, concurrency int, duration time.Duration, logger *log.Logger) (*Result, error)
+	Teardown(ctx context.Context, db DatabaseDriver, logger *log.Logger) error
 }
 
 type Result struct {

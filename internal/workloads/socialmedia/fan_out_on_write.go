@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ const (
 
 type FanOutOnWriteTest struct{}
 
-func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
+func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	var dbType string
 	if _, ok := db.(*database.PostgresDriver); ok {
 		dbType = "postgres"
@@ -104,7 +105,7 @@ func (t *FanOutOnWriteTest) Setup(ctx context.Context, db database.DatabaseDrive
 	return nil
 }
 
-func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
+func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration, logger *log.Logger) (*database.Result, error) {
 	result := &database.Result{}
 
 	var dbType string
@@ -130,9 +131,9 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 			}
 			_, err := db.ExecContext(ctx, postInsertQuery, postID, userID, "post content", time.Now())
 			if err != nil {
-				fmt.Printf("Error inserting post: %v\n", err)
+				logger.Printf("Error inserting post: %v\n", err)
 				result.Errors++
-				return // Return from goroutine if insert fails
+				return
 			}
 
 			// Fan-out updates within a transaction with retry mechanism
@@ -169,7 +170,7 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 						}
 						rows, err := db.QueryContext(ctx, query, userID)
 						if err != nil {
-							fmt.Printf("Error querying followers: %v\n", err)
+							logger.Printf("Error querying followers: %v\n", err)
 							return err
 						}
 						defer rows.Close()
@@ -177,7 +178,7 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 						for rows.Next() {
 							var followerID string
 							if err := rows.Scan(&followerID); err != nil {
-								fmt.Printf("Error scanning follower ID: %v\n", err)
+								logger.Printf("Error scanning follower ID: %v\n", err)
 								return err
 							}
 							// Update JSON array for both MySQL and PostgreSQL
@@ -207,9 +208,10 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 							if dbType == "mysql" {
 								updateQuery = "UPDATE timelines SET post_ids = ? WHERE user_id = ?"
 							}
+							logger.Printf("Updating timeline for user %s with post %s. New JSON: %s\n", followerID, postID, string(newPostIDsJSON))
 							_, err = db.ExecContext(ctx, updateQuery, newPostIDsJSON, followerID)
 							if err != nil {
-								fmt.Printf("Error updating timeline for user %s with post %s: %v\n", followerID, postID, err)
+								logger.Printf("Error updating timeline for user %s with post %s: %v\n", followerID, postID, err)
 								return err
 							}
 						}
@@ -219,7 +221,7 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 				if err == nil {
 					break // Transaction successful, break retry loop
 				} else if strings.Contains(err.Error(), "bad connection") {
-					fmt.Printf("Retrying transaction due to bad connection: %v\n", err)
+					logger.Printf("Retrying transaction due to bad connection: %v\n", err)
 					time.Sleep(100 * time.Millisecond) // Wait before retrying
 				} else {
 					// Other error, no retry
@@ -292,7 +294,7 @@ func (t *FanOutOnWriteTest) Run(ctx context.Context, db database.DatabaseDriver,
 	return result, nil
 }
 
-func (t *FanOutOnWriteTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
+func (t *FanOutOnWriteTest) Teardown(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 

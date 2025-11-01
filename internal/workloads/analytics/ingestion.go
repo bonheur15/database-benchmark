@@ -4,6 +4,7 @@ import (
 	"context"
 	"database-benchmark/internal/database"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -16,7 +17,7 @@ const (
 
 type IngestionTest struct{}
 
-func (t *IngestionTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
+func (t *IngestionTest) Setup(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 
@@ -31,7 +32,7 @@ func (t *IngestionTest) Setup(ctx context.Context, db database.DatabaseDriver) e
 	})
 }
 
-func (t *IngestionTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
+func (t *IngestionTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration, logger *log.Logger) (*database.Result, error) {
 	var wg sync.WaitGroup
 	startTime := time.Now()
 
@@ -72,7 +73,7 @@ func (t *IngestionTest) Run(ctx context.Context, db database.DatabaseDriver, con
 	return result, nil
 }
 
-func (t *IngestionTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
+func (t *IngestionTest) Teardown(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 		if _, ok := db.(*database.MongoDriver); ok {

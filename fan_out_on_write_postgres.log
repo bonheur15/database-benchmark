@@ -1,0 +1,22 @@
+Resetting PostgreSQL database...
+Dropping table: order_items
+Dropping table: payments
+Dropping table: orders
+Dropping table: products
+Dropping table: users
+Dropping table: posts
+Dropping table: follows
+Dropping table: timelines
+Dropping table: events
+Running benchmark for socialmedia/fan_out_on_write on postgres...
+{
+  "Operations": 0,
+  "Errors": 86442045,
+  "Throughput": 0,
+  "P95Latency": 0,
+  "P99Latency": 0,
+  "AverageLatency": 0,
+  "ErrorRate": 1,
+  "TotalTime": 30000000000,
+  "DataIntegrity": false
+}

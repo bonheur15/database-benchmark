@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -18,6 +17,14 @@ import (
 )
 
 func main() {
+	logFile, err := os.OpenFile("benchmark.log", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+	defer logFile.Close()
+
+	logger := log.New(logFile, "", log.Ldate|log.Ltime|log.Lshortfile)
+
 	var exitCode int
 	defer func() {
 		os.Exit(exitCode)
@@ -33,7 +40,7 @@ func main() {
 
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		log.Printf("Failed to load config: %v", err)
+		logger.Printf("Failed to load config: %v", err)
 		exitCode = 1
 		return
 	}
@@ -46,7 +53,7 @@ func main() {
 
 	driver, ok := dbs[*dbType]
 	if !ok {
-		log.Printf("Unsupported database type: %s", *dbType)
+		logger.Printf("Unsupported database type: %s", *dbType)
 		exitCode = 1
 		return
 	}
@@ -61,7 +68,7 @@ func main() {
 		dsn = cfg.Databases.Mongo
 	}
 	if err := driver.Connect(dsn); err != nil {
-		log.Printf("Failed to connect to %s: %v", *dbType, err)
+		logger.Printf("Failed to connect to %s: %v", *dbType, err)
 		exitCode = 1
 		return
 	}
@@ -85,43 +92,43 @@ func main() {
 
 	workload, ok := workloads[*workloadName][*testName]
 	if !ok {
-		log.Printf("Unsupported workload/test: %s/%s", *workloadName, *testName)
+		logger.Printf("Unsupported workload/test: %s/%s", *workloadName, *testName)
 		exitCode = 1
 		return
 	}
 
 	// Reset the database to ensure a clean state before setup
 	if err := driver.Reset(context.Background()); err != nil {
-		log.Printf("Failed to reset database: %v", err)
+		logger.Printf("Failed to reset database: %v", err)
 		exitCode = 1
 		return
 	}
 
-	if err := workload.Setup(context.Background(), driver); err != nil {
-		log.Printf("Failed to setup database: %v", err)
+	if err := workload.Setup(context.Background(), driver, logger); err != nil {
+		logger.Printf("Failed to setup database: %v", err)
 		exitCode = 1
 		return
 	}
 	defer func() {
-		if err := workload.Teardown(context.Background(), driver); err != nil {
-			log.Printf("Failed to teardown database: %v", err)
+		if err := workload.Teardown(context.Background(), driver, logger); err != nil {
+			logger.Printf("Failed to teardown database: %v", err)
 		}
 	}()
 
-	fmt.Printf("Running benchmark for %s/%s on %s...\n", *workloadName, *testName, *dbType)
+	logger.Printf("Running benchmark for %s/%s on %s...\n", *workloadName, *testName, *dbType)
 
-	result, err := runner.Run(context.Background(), driver, workload, *concurrency, *duration)
+	result, err := runner.Run(context.Background(), driver, workload, *concurrency, *duration, logger)
 	if err != nil {
-		log.Printf("Benchmark failed: %v", err)
+		logger.Printf("Benchmark failed: %v", err)
 		exitCode = 1
 		return
 	}
 
 	jsonOutput, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		log.Printf("Failed to marshal result: %v", err)
+		logger.Printf("Failed to marshal result: %v", err)
 		exitCode = 1
 		return
 	}
-	fmt.Println(string(jsonOutput))
+	logger.Println(string(jsonOutput))
 }

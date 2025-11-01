@@ -4,6 +4,7 @@ import (
 	"context"
 	"database-benchmark/internal/database"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 
 type DashboardQueryTest struct{}
 
-func (t *DashboardQueryTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
+func (t *DashboardQueryTest) Setup(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 
@@ -68,7 +69,7 @@ func (t *DashboardQueryTest) Setup(ctx context.Context, db database.DatabaseDriv
 	})
 }
 
-func (t *DashboardQueryTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
+func (t *DashboardQueryTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration, logger *log.Logger) (*database.Result, error) {
 	var wg sync.WaitGroup
 	histogram := hdrhistogram.New(1, 10000, 3)
 	deadline := time.Now().Add(duration)
@@ -128,7 +129,7 @@ func (t *DashboardQueryTest) Run(ctx context.Context, db database.DatabaseDriver
 	return result, nil
 }
 
-func (t *DashboardQueryTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
+func (t *DashboardQueryTest) Teardown(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 		if _, ok := db.(*database.MongoDriver); ok {

@@ -5,6 +5,7 @@ import (
 	"database-benchmark/internal/database"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -23,7 +24,7 @@ const (
 
 type JoinOnReadTest struct{}
 
-func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
+func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	if _, ok := db.(*database.MongoDriver); ok {
 		// MongoDB setup
 		return db.ExecuteTx(ctx, func(tx interface{}) error {
@@ -117,7 +118,7 @@ func (t *JoinOnReadTest) Setup(ctx context.Context, db database.DatabaseDriver) 
 	return nil
 }
 
-func (t *JoinOnReadTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
+func (t *JoinOnReadTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration, logger *log.Logger) (*database.Result, error) {
 	var wg sync.WaitGroup
 	histogram := hdrhistogram.New(1, 10000, 3)
 	deadline := time.Now().Add(duration)
@@ -173,7 +174,7 @@ func (t *JoinOnReadTest) Run(ctx context.Context, db database.DatabaseDriver, co
 	return result, nil
 }
 
-func (t *JoinOnReadTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
+func (t *JoinOnReadTest) Teardown(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 		if _, ok := db.(*database.MongoDriver); ok {

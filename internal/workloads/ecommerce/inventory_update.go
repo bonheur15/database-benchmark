@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -22,8 +23,8 @@ type Tx interface {
 	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 }
 
-func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
-	fmt.Println("Starting setup")
+func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
+	logger.Println("Starting setup")
 	if mongoDriver, ok := db.(*database.MongoDriver); ok {
 		return mongoDriver.ExecuteTx(ctx, func(tx interface{}) error {
 			ctx = context.WithValue(ctx, "tx", tx)
@@ -55,7 +56,7 @@ func (t *InventoryUpdateTest) Setup(ctx context.Context, db database.DatabaseDri
 		return err
 	}
 
-	fmt.Println("Schema created successfully")
+	logger.Println("Schema created successfully")
 
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		var sqlTx Tx
@@ -96,7 +97,7 @@ func (r pgxResult) RowsAffected() (int64, error) {
 	return r.CommandTag.RowsAffected(), nil
 }
 
-func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
+func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration, logger *log.Logger) (*database.Result, error) {
 	var wg sync.WaitGroup
 	startTime := time.Now()
 	result := &database.Result{}
@@ -205,14 +206,14 @@ func (t *InventoryUpdateTest) Run(ctx context.Context, db database.DatabaseDrive
 
 	result.DataIntegrity = finalInventory == 0
 	if !result.DataIntegrity {
-		fmt.Printf("Data integrity check failed: final inventory is %d, expected 0\n", finalInventory)
+		logger.Printf("Data integrity check failed: final inventory is %d, expected 0\n", finalInventory)
 	}
 
 	return result, nil
 }
 
-func (t *InventoryUpdateTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
-	fmt.Println("Teardown started")
+func (t *InventoryUpdateTest) Teardown(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
+	logger.Println("Teardown started")
 	if mongoDriver, ok := db.(*database.MongoDriver); ok {
 		return mongoDriver.ExecuteTx(ctx, func(tx interface{}) error {
 			ctx = context.WithValue(ctx, "tx", tx)

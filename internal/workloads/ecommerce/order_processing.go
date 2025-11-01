@@ -3,8 +3,8 @@ package ecommerce
 import (
 	"context"
 	"database-benchmark/internal/database"
+	"log"
 	"time"
-	"fmt"
 
 	"github.com/HdrHistogram/hdrhistogram-go"
 	"github.com/google/uuid"
@@ -13,8 +13,8 @@ import (
 
 type OrderProcessingTest struct{}
 
-func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
-	fmt.Println("Setting up OrderProcessingTest...")
+func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
+	logger.Println("Setting up OrderProcessingTest...")
 	if _, ok := db.(*database.MongoDriver); ok {
 		// MongoDB does not use SQL schemas, collections are created implicitly
 		// Seed a product for MongoDB
@@ -49,7 +49,7 @@ func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDri
 	}
 
 	// Seed a product for SQL databases
-	fmt.Println("Seeding product for SQL databases...")
+	logger.Println("Seeding product for SQL databases...")
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 		query := "INSERT INTO products (id, name, inventory) VALUES ($1, $2, $3)"
@@ -61,7 +61,7 @@ func (t *OrderProcessingTest) Setup(ctx context.Context, db database.DatabaseDri
 	})
 }
 
-func (t *OrderProcessingTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
+func (t *OrderProcessingTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration, logger *log.Logger) (*database.Result, error) {
 	result := &database.Result{}
 	totalStartTime := time.Now()
 
@@ -158,7 +158,7 @@ func (t *OrderProcessingTest) Run(ctx context.Context, db database.DatabaseDrive
 	return result, nil
 }
 
-func (t *OrderProcessingTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
+func (t *OrderProcessingTest) Teardown(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	if _, ok := db.(*database.MongoDriver); ok {
 		// MongoDB drop collections
 		return db.ExecuteTx(ctx, func(tx interface{}) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database-benchmark/internal/database"
 	"fmt"
+	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -15,7 +16,7 @@ import (
 
 type CatalogFilterTest struct{}
 
-func (t *CatalogFilterTest) Setup(ctx context.Context, db database.DatabaseDriver) error {
+func (t *CatalogFilterTest) Setup(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	if _, ok := db.(*database.MongoDriver); ok {
 		// MongoDB does not use SQL schemas, collections are created implicitly
 		return db.ExecuteTx(ctx, func(tx interface{}) error {
@@ -95,7 +96,7 @@ func (t *CatalogFilterTest) Setup(ctx context.Context, db database.DatabaseDrive
 	})
 }
 
-func (t *CatalogFilterTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration) (*database.Result, error) {
+func (t *CatalogFilterTest) Run(ctx context.Context, db database.DatabaseDriver, concurrency int, duration time.Duration, logger *log.Logger) (*database.Result, error) {
 	var wg sync.WaitGroup
 	histogram := hdrhistogram.New(1, 10000, 3)
 	deadline := time.Now().Add(duration)
@@ -146,7 +147,7 @@ func (t *CatalogFilterTest) Run(ctx context.Context, db database.DatabaseDriver,
 	return result, nil
 }
 
-func (t *CatalogFilterTest) Teardown(ctx context.Context, db database.DatabaseDriver) error {
+func (t *CatalogFilterTest) Teardown(ctx context.Context, db database.DatabaseDriver, logger *log.Logger) error {
 	return db.ExecuteTx(ctx, func(tx interface{}) error {
 		ctx = context.WithValue(ctx, "tx", tx)
 		if _, ok := db.(*database.MongoDriver); ok {
